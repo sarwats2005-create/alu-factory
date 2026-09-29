@@ -7,6 +7,9 @@
     "build": "prisma generate && next build",
     "start": "next start -p 3400",
     "typecheck": "tsc --noEmit",
+    "build:worker": "opennextjs-cloudflare build",
+    "deploy": "npm run build:worker && wrangler deploy",
+    "cf:setup": "bash scripts/cf-setup.sh",
     "db:migrate": "prisma migrate dev --name init",
     "db:seed": "tsx prisma/seed.ts"
   },

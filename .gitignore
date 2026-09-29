@@ -18,3 +18,5 @@ backups/*.json
 tsconfig.tsbuildinfo
 .freebuff/
 .vercel/
+.open-next/
+.wrangler/

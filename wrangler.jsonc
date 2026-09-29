@@ -1,0 +1,42 @@
+// Cloudflare Workers configuration for ALU FACTORY ERP (Next.js via OpenNext).
+//
+// Hyperdrive accelerates queries to the Neon Postgres database by pooling
+// connections inside Cloudflare's network and caching read queries.
+//
+// SETUP (one-time, after `npx wrangler login`):
+//   1. Create the Hyperdrive config (id gets written into this file):
+//      npx wrangler hyperdrive create alu-neon \
+//        --connection-string="<DATABASE_URL from .env>"
+//   2. Paste the printed "id" into the hyperdrive block below.
+//   3. Deploy:  npm run build:worker && npx wrangler deploy
+//
+// The localConnectionString lets `wrangler dev` talk to Neon directly from
+// your machine; keep it in .env, never commit it.
+
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  name: "alu-factory-erp",
+  main: "open-next.output/server/index.mjs",
+  compatibility_date: "2026-08-04",
+  compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
+  assets: {
+    directory: "open-next.output/assets",
+    binding: "ASSETS",
+  },
+  hyperdrive: [
+    {
+      binding: "HYPERDRIVE",
+      id: "PASTE_HYPERDRIVE_ID_HERE",
+      // Used only by `wrangler dev` locally; safe to keep as an env var ref.
+      localConnectionString: "env:DATABASE_URL",
+    },
+  ],
+  // Run the Worker near the database: most queries drop from ~20-30ms to
+  // ~1-3ms round-trip. Matches the Neon region (AWS ap-southeast-1).
+  placement: {
+    region: "aws:ap-southeast-1",
+  },
+  observability: {
+    enabled: true,
+  },
+}
