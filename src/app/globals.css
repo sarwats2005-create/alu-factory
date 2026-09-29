@@ -355,6 +355,44 @@ html.dark .card {
   }
 }
 
+/* Hover: cards lift and their aurora intensifies (dark only). Pointer-only,
+   and disabled for users who prefer reduced motion. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  html.dark .card,
+  html.dark .stat {
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+  html.dark .card::before,
+  html.dark .stat::before {
+    transition: opacity 0.22s ease;
+    opacity: 0.72;
+  }
+  html.dark .card:hover,
+  html.dark .stat:hover {
+    transform: translateY(-3px);
+    border-color: rgba(160, 190, 255, 0.24);
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.35),
+      0 16px 38px rgba(0, 0, 0, 0.45),
+      0 20px 48px -12px rgba(91, 155, 230, 0.3),
+      0 1px 0 rgba(148, 163, 255, 0.18) inset,
+      0 -18px 42px -20px rgba(91, 155, 230, 0.34) inset;
+  }
+  html.dark .card:hover::before,
+  html.dark .stat:hover::before {
+    opacity: 1;
+  }
+  /* Featured stat keeps its green aura on lift. */
+  html.dark .stat.featured:hover {
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.35),
+      0 16px 38px rgba(0, 0, 0, 0.45),
+      0 20px 48px -12px rgba(77, 184, 115, 0.26),
+      0 1px 0 rgba(148, 163, 255, 0.18) inset,
+      0 -18px 42px -20px rgba(77, 184, 115, 0.3) inset;
+  }
+}
+
 .card-pad {
   padding: 18px;
 }
