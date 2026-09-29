@@ -162,7 +162,7 @@ export const dict: Record<string, Entry> = {
   imageTooBig: { en: "Image must be under 1 MB.", ku: "وێنە دەبێت لە ١ MB کەمتر بێت٫" },
 
   // Beneficiaries
-  beneficiariesTitle: { en: "Beneficiaries", ku: "بەنێفیسیارەکان" },
+  beneficiariesTitle: { en: "Beneficiaries", ku: "دابینکەرەکان" },
   beneficiariesSub: { en: "Raw-material suppliers and what the factory owes them", ku: "دابینکەرانی ماددەی خاو و ئەوەی فاکتۆری قەرزارە پێیان" },
   addBeneficiary: { en: "Add Beneficiary", ku: "زیادکردنی بەنێفیسیار" },
   editBeneficiary: { en: "Edit Beneficiary", ku: "دەستکاری بەنێفیسیار" },
