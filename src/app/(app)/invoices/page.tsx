@@ -38,7 +38,7 @@ function useNow() {
   return now;
 }
 
-export function editWindowOpen(sale: { createdAt: string | Date }, now: number): boolean {
+function editWindowOpen(sale: { createdAt: string | Date }, now: number): boolean {
   const created = new Date(sale.createdAt).getTime();
   return Number.isFinite(created) && now - created < EDIT_WINDOW_MS;
 }
