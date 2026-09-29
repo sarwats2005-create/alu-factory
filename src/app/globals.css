@@ -253,9 +253,106 @@ html.dark *::-webkit-scrollbar-thumb:hover {
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 28px rgba(14, 10, 36, 0.09);
 }
 html.dark .card {
-  background: rgba(22, 19, 48, 0.78);
+  background: linear-gradient(
+    160deg,
+    rgba(52, 58, 110, 0.5) 0%,
+    rgba(30, 27, 62, 0.82) 34%,
+    rgba(20, 17, 44, 0.86) 100%
+  );
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 28px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 8px 28px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(148, 163, 255, 0.14) inset,
+    0 -18px 42px -20px rgba(91, 155, 230, 0.24) inset;
+}
+
+/* ==========================================================================
+   Dark-mode ambient glow — every floating surface gets a soft aurora
+   bleeding out from beneath it (dashboard stats, tables, panels, modals).
+   Implemented as a ::before glow layer + ::after top sheen so the effect
+   needs no markup changes anywhere.
+   ========================================================================== */
+
+@media (min-width: 0) {
+  html.dark .card,
+  html.dark .glass-panel,
+  html.dark .modal-panel,
+  html.dark .stat {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Soft brand-tinted glow radiating from the bottom edge. */
+  html.dark .card::before,
+  html.dark .glass-panel::before,
+  html.dark .modal-panel::before,
+  html.dark .stat::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background:
+      radial-gradient(58% 42% at 50% 108%, rgba(91, 155, 230, 0.2) 0%, rgba(91, 155, 230, 0) 70%),
+      radial-gradient(40% 34% at 88% -6%, rgba(124, 108, 255, 0.14) 0%, rgba(124, 108, 255, 0) 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* Hairline top sheen, like light catching a glass edge. */
+  html.dark .card::after,
+  html.dark .glass-panel::after,
+  html.dark .modal-panel::after,
+  html.dark .stat::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 12%, rgba(255, 255, 255, 0) 26%);
+    mix-blend-mode: screen;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* Keep real content above the sheen layer. */
+  html.dark .card > *,
+  html.dark .glass-panel > *,
+  html.dark .modal-panel > *,
+  html.dark .stat > * {
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Featured stat (P&L) gets a stronger, warmer aura. */
+  html.dark .stat.featured::before {
+    background:
+      radial-gradient(58% 46% at 50% 110%, rgba(77, 184, 115, 0.22) 0%, rgba(77, 184, 115, 0) 70%),
+      radial-gradient(44% 38% at 12% -8%, rgba(91, 155, 230, 0.22) 0%, rgba(91, 155, 230, 0) 70%);
+  }
+
+  /* Tables inside cards: subtle gradient wash per row band for depth. */
+  html.dark .card table.data tbody tr:nth-child(odd) {
+    background: linear-gradient(90deg, rgba(91, 155, 230, 0.05) 0%, rgba(124, 108, 255, 0.04) 100%);
+  }
+
+  /* Hardcoded light utility surfaces → deep-glass equivalents, so tinted
+     callouts (invoice total, report stats, info boxes) match the theme. */
+  html.dark .bg-\[\#E8F0FB\] {
+    background: linear-gradient(150deg, rgba(91, 155, 230, 0.16) 0%, rgba(46, 58, 110, 0.28) 100%) !important;
+    box-shadow: 0 -10px 24px -14px rgba(91, 155, 230, 0.3) inset;
+  }
+  html.dark .bg-\[\#FAFBFC\],
+  html.dark .bg-\[\#F5F7FA\],
+  html.dark .bg-\[\#F6F7F9\] {
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.015) 100%) !important;
+  }
+  html.dark .bg-\[\#E8F0FB\] .text-\[\#1B5DB1\],
+  html.dark .bg-\[\#E8F0FB\].text-\[\#1B5DB1\] {
+    color: #7fb2ec;
+  }
+  html.dark .text-\[\#1A1F36\] {
+    color: var(--text) !important;
+  }
 }
 
 .card-pad {
@@ -909,7 +1006,7 @@ html.dark .mobile-tabs {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 html.dark .modal-panel {
-  background: #161330;
+  background: linear-gradient(165deg, rgba(48, 54, 104, 0.72) 0%, rgba(28, 25, 58, 0.96) 36%, #161330 100%);
 }
 
 /* ==========================================================================
@@ -957,9 +1054,16 @@ html.dark .stat.featured {
   box-shadow: 0 10px 40px rgba(14, 10, 36, 0.14);
 }
 html.dark .glass-panel {
-  background: rgba(22, 19, 48, 0.7);
+  background: linear-gradient(
+    165deg,
+    rgba(50, 56, 108, 0.55) 0%,
+    rgba(28, 25, 58, 0.82) 36%,
+    rgba(22, 19, 48, 0.9) 100%
+  );
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.4),
+    0 -18px 46px -22px rgba(91, 155, 230, 0.28) inset;
 }
 
 /* Extrusion die — fine vertical strands, like billet pushed through a die.
