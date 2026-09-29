@@ -1,0 +1,26 @@
+# ALU FACTORY — Build Tasks
+
+- `[/]` **Phase 1: Project Setup & Database**
+  - `[ ]` Initialize Next.js 14 project
+  - `[ ]` Install dependencies
+  - `[ ]` Create database schema (db.js)
+  - `[ ]` Create design system (globals.css)
+- `[ ]` **Phase 2: Authentication**
+  - `[ ]` Auth utilities (auth.js)
+  - `[ ]` Login page
+  - `[ ]` Signup page
+  - `[ ]` Auth API routes
+  - `[ ]` Middleware
+- `[ ]` **Phase 3: Layout & i18n**
+  - `[ ]` Dashboard layout (sidebar + topbar)
+  - `[ ]` Reusable components
+  - `[ ]` i18n translations
+- `[ ]` **Phase 4: Dashboard Module**
+- `[ ]` **Phase 5: Customers Module**
+- `[ ]` **Phase 6: Beneficiaries Module**
+- `[ ]` **Phase 7: Inventory Module**
+- `[ ]` **Phase 8: Point of Sale Module**
+- `[ ]` **Phase 9: Vault Module**
+- `[ ]` **Phase 10: Reports Module**
+- `[ ]` **Phase 11: Settings Module**
+- `[ ]` **Phase 12: Polish & Verification**

@@ -1,0 +1,367 @@
+// ALU FACTORY ERP — Database Schema
+// All financial fields use Decimal (never Float). PostgreSQL (Neon) + Prisma.
+
+// NOTE: this datasource used to be SQLite. The pre-migration SQLite migrations
+// are preserved in prisma/migrations.sqlite/ for reference; prisma/migrations/
+// now holds the PostgreSQL baseline.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon: pooled URL for the app, direct (unpooled) URL for migrations.
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// ============ USERS & AUTH ============
+
+model User {
+  id            String            @id @default(cuid())
+  email         String            @unique
+  passwordHash  String
+  fullName      String
+  role          String            @default("USER") // OWNER | USER
+  active        Boolean           @default(true)
+  language      String            @default("en") // en | ku
+  lastLoginAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  permissions   UserPermission[]
+  auditLogs     AuditLog[]
+  exchangeRates ExchangeRateLog[]
+}
+
+model UserPermission {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page    String // dashboard | customers | beneficiaries | inventory | pos | vault | reports | settings
+  allowed Boolean @default(false)
+
+  @@unique([userId, page])
+  @@index([userId])
+}
+
+// ============ SETTINGS (singleton row) ============
+
+model Setting {
+  id                      String    @id @default("singleton")
+  exchangeRate            Decimal   @default(1500)
+  defaultLowStockKg       Decimal   @default(50)
+  overdueDays             Int       @default(30)
+  customerDueThreshold    Decimal   @default(500)
+  beneficiaryDueThreshold Decimal   @default(500)
+  vaultLowThresholdUsd    Decimal   @default(100)
+  alertCustomerDue        Boolean   @default(true)
+  alertBeneficiaryDue     Boolean   @default(true)
+  alertLowStock           Boolean   @default(true)
+  alertVaultLow           Boolean   @default(true)
+  alertOverdue            Boolean   @default(true)
+  emailDaily              Boolean   @default(false)
+  emailWeekly             Boolean   @default(false)
+  emailReportsTo          String?
+  autoBackup              Boolean   @default(true)
+  lastAutoBackupAt        DateTime?
+  updatedAt               DateTime  @updatedAt
+}
+
+model ExchangeRateLog {
+  id          String   @id @default(cuid())
+  oldRate     Decimal
+  newRate     Decimal
+  changedById String
+  changedBy   User     @relation(fields: [changedById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model AluminumType {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// ============ VAULT ============
+
+model Vault {
+  id       String  @id @default(cuid())
+  currency String  @unique // USD | IQD
+  balance  Decimal @default(0)
+}
+
+model VaultTransaction {
+  id                   String              @id @default(cuid())
+  vaultCurrency        String // USD | IQD
+  type                 String // SALE | PURCHASE | DEPOSIT | WITHDRAW | CUSTOMER_PAYMENT | BENEFICIARY_PAYMENT
+  reference            String?
+  description          String
+  currency             String // currency of the underlying business transaction
+  amountIn             Decimal             @default(0) // in vault currency
+  amountOut            Decimal             @default(0) // in vault currency
+  balanceAfter         Decimal
+  exchangeRate         Decimal?
+  txDate               DateTime
+  createdAt            DateTime            @default(now())
+  saleId               String?
+  sale                 Sale?               @relation(fields: [saleId], references: [id])
+  purchaseId           String?
+  purchase             Purchase?           @relation(fields: [purchaseId], references: [id])
+  vaultOpId            String?
+  vaultOp              VaultOperation?     @relation(fields: [vaultOpId], references: [id])
+  customerPaymentId    String?
+  customerPayment      CustomerPayment?    @relation(fields: [customerPaymentId], references: [id])
+  beneficiaryPaymentId String?
+  beneficiaryPayment   BeneficiaryPayment? @relation(fields: [beneficiaryPaymentId], references: [id])
+
+  @@index([txDate])
+  @@index([vaultCurrency])
+  @@index([type])
+}
+
+model VaultOperation {
+  id            String             @id @default(cuid())
+  vaultCurrency String // USD | IQD
+  opType        String // DEPOSIT | WITHDRAW
+  amount        Decimal // in vault currency
+  label         String // source / reason
+  notes         String?
+  opDate        DateTime
+  createdAt     DateTime           @default(now())
+  transactions  VaultTransaction[]
+
+  @@index([opDate])
+}
+
+// ============ CUSTOMERS & BENEFICIARIES ============
+
+model Customer {
+  id        String            @id @default(cuid())
+  fullName  String            @unique
+  phone     String?
+  address   String?
+  photo     String? // data URL
+  sales     Sale[]
+  payments  CustomerPayment[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([fullName])
+}
+
+model CustomerPayment {
+  id            String             @id @default(cuid())
+  customerId    String
+  customer      Customer           @relation(fields: [customerId], references: [id])
+  amount        Decimal // in payment currency
+  currency      String // USD | IQD (transaction currency)
+  vaultCurrency String // which vault was used
+  exchangeRate  Decimal?
+  reference     String
+  notes         String?
+  payDate       DateTime
+  createdAt     DateTime           @default(now())
+  vaultTx       VaultTransaction[]
+
+  @@index([payDate])
+  @@index([customerId])
+}
+
+model Beneficiary {
+  id        String               @id @default(cuid())
+  fullName  String               @unique
+  phone     String?
+  address   String?
+  purchases Purchase[]
+  payments  BeneficiaryPayment[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([fullName])
+}
+
+model BeneficiaryPayment {
+  id            String             @id @default(cuid())
+  beneficiaryId String
+  beneficiary   Beneficiary        @relation(fields: [beneficiaryId], references: [id])
+  amount        Decimal // in payment currency
+  currency      String
+  vaultCurrency String
+  exchangeRate  Decimal?
+  reference     String
+  notes         String?
+  payDate       DateTime
+  createdAt     DateTime           @default(now())
+  vaultTx       VaultTransaction[]
+
+  @@index([payDate])
+  @@index([beneficiaryId])
+}
+
+// ============ INVENTORY ============
+
+model InventoryItem {
+  id             String              @id @default(cuid())
+  sku            String              @unique
+  name           String
+  aluminumType   String
+  totalPurchased Decimal             @default(0)
+  totalProcessed Decimal             @default(0) // weight lost to processing
+  available      Decimal             @default(0)
+  lowStockKg     Decimal? // per-item override
+  beneficiaryId  String?
+  lossEvents     LossEvent[]
+  movements      InventoryMovement[]
+  saleLines      SaleLineItem[]
+  purchases      Purchase[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([name])
+}
+
+model LossEvent {
+  id          String        @id @default(cuid())
+  itemId      String
+  item        InventoryItem @relation(fields: [itemId], references: [id])
+  originalKg  Decimal
+  lossKg      Decimal
+  lossPct     Decimal
+  remainingKg Decimal
+  notes       String?
+  processedAt DateTime
+  createdAt   DateTime      @default(now())
+
+  @@index([processedAt])
+  @@index([itemId])
+}
+
+model InventoryMovement {
+  id        String        @id @default(cuid())
+  itemId    String
+  item      InventoryItem @relation(fields: [itemId], references: [id])
+  direction String // IN | OUT | LOSS
+  qtyKg     Decimal
+  reference String?
+  note      String?
+  movedAt   DateTime
+  createdAt DateTime      @default(now())
+
+  @@index([movedAt])
+  @@index([itemId])
+}
+
+// ============ PURCHASES ============
+
+model Purchase {
+  id            String             @id @default(cuid())
+  number        String             @unique // PUR-00001
+  beneficiaryId String
+  beneficiary   Beneficiary        @relation(fields: [beneficiaryId], references: [id])
+  productName   String
+  sku           String
+  aluminumType  String
+  weightKg      Decimal
+  unitPrice     Decimal
+  currency      String // transaction currency
+  vaultCurrency String // which vault was used
+  exchangeRate  Decimal?
+  totalPrice    Decimal // in transaction currency
+  cashPaid      Decimal            @default(0) // in transaction currency
+  dueAmount     Decimal            @default(0) // factory owes beneficiary
+  notes         String?
+  txDate        DateTime
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  vaultTxs      VaultTransaction[]
+  itemId        String?
+  item          InventoryItem?     @relation(fields: [itemId], references: [id])
+
+  @@index([txDate])
+  @@index([beneficiaryId])
+  @@index([sku])
+}
+
+// ============ SALES / POS ============
+
+model Sale {
+  id            String             @id @default(cuid())
+  invoiceNo     String             @unique // INV-00001
+  customerId    String
+  customer      Customer           @relation(fields: [customerId], references: [id])
+  currency      String // transaction currency
+  vaultCurrency String // which vault was used
+  exchangeRate  Decimal?
+  totalAmount   Decimal // in transaction currency
+  cashPaid      Decimal            @default(0)
+  dueAmount     Decimal            @default(0) // customer owes factory
+  cogs          Decimal            @default(0) // cost of goods sold (USD-equivalent at tx date)
+  notes         String?
+  saleDate      DateTime
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  lineItems     SaleLineItem[]
+  vaultTxs      VaultTransaction[]
+
+  @@index([saleDate])
+  @@index([customerId])
+  @@index([invoiceNo])
+}
+
+model SaleLineItem {
+  id        String        @id @default(cuid())
+  saleId    String
+  sale      Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      InventoryItem @relation(fields: [itemId], references: [id])
+  saleType  String        @default("RAW") // RAW | FINISHED
+  weightKg  Decimal
+  unitPrice Decimal
+  lineTotal Decimal
+
+  @@index([saleId])
+  @@index([itemId])
+}
+
+// ============ ALERTS & AUDIT ============
+
+model Alert {
+  id        String   @id @default(cuid())
+  type      String // CUSTOMER_DUE | BENEFICIARY_DUE | LOW_STOCK | VAULT_LOW | OVERDUE
+  severity  String   @default("warning") // info | warning | danger
+  message   String
+  linkTo    String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String // CREATE | UPDATE | DELETE | LOGIN | LOGOUT | PERMISSION_CHANGE | BACKUP | RESTORE | RATE_CHANGE
+  module    String
+  recordRef String?
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([action])
+}
+
+model Backup {
+  id        String   @id @default(cuid())
+  filename  String
+  sizeBytes Int
+  kind      String   @default("MANUAL") // MANUAL | AUTO
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
