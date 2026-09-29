@@ -7,16 +7,8 @@ export const metadata: Metadata = {
   title: "ALU FACTORY — Aluminum Operations Management",
   description: "Production-grade ERP for aluminum factory operations",
   icons: {
-    icon: [
-      {
-        url:
-          "data:image/svg+xml," +
-          encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1B5DB1"/><path d="M14 46V28l10 6v-14l10 6V18l16 10v18z" fill="#fff"/></svg>`
-          ),
-        type: "image/svg+xml",
-      },
-    ],
+    icon: "/app-icon.png",
+    apple: "/app-icon.png",
   },
 };
 

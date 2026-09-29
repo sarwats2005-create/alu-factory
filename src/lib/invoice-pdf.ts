@@ -9,7 +9,6 @@
 //     user chooses the folder once and every later save lands there,
 //     named `<invoiceNo>.pdf`.
 
-import { Logo } from "@/components/Logo";
 import { fmtDate, fmtMoney } from "@/lib/money";
 
 const DB_NAME = "alu-invoice-pdfs";
@@ -92,7 +91,7 @@ function invoiceHtml(sale: any): string {
   <div style="background:#ffffff;color:#1A1F36;padding:32px;width:480px;font-family:Inter,Arial,sans-serif">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1B5DB1;padding-bottom:16px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:44px;height:44px">${LogoStatic()}</div>
+        <img src="/app-icon.png" width="44" height="44" style="border-radius:10px" />
         <div>
           <div style="font-weight:700;font-size:18px;line-height:1.2">ALU FACTORY</div>
           <div style="font-size:10px;color:#6B7280">Aluminum Operations Management</div>
@@ -142,11 +141,6 @@ function invoiceHtml(sale: any): string {
   </div>`;
 }
 
-/** The Logo component is a React component; for offscreen rendering we inline a
- *  minimal SVG mark with the same look. */
-function LogoStatic(): string {
-  return `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"><rect width="48" height="48" rx="10" fill="#1B5DB1"/><path d="M14 34 24 14l10 20h-6l-4-9-4 9z" fill="#fff"/></svg>`;
-}
 
 /* ---------------- rendering + output ---------------- */
 
