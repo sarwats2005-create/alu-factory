@@ -1203,6 +1203,418 @@ html.dark .glass-panel {
   }
 }
 
+/* ==========================================================================
+   Report sheet
+   --------------------------------------------------------------------------
+   A self-contained, always-light document. It is what the user previews on
+   screen AND what gets captured for the PDF, so the export is genuinely
+   WYSIWYG. The palette is pinned to the light-mode tokens rather than the
+   theme variables, because html2canvas renders off-screen with no
+   `.dark` ancestor and a dark export would be unreadable.
+   ========================================================================== */
+
+.rs {
+  --rs-ink: #1a1f36;
+  --rs-ink-2: #475467;
+  --rs-ink-3: #8a93a8;
+  --rs-line: #e4e8ef;
+  --rs-line-2: #eef1f5;
+  --rs-panel: #f7f9fc;
+  --rs-brand: #1b5db1;
+  --rs-good: #1e8a44;
+  --rs-bad: #d93025;
+  --rs-warn: #b45309;
+
+  width: 1123px; /* A4 landscape @ 96dpi */
+  background: #ffffff;
+  color: var(--rs-ink);
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 40px 44px 34px;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- header ---- */
+
+.rs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--rs-brand);
+}
+
+.rs-head-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.rs-head-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+  object-fit: cover;
+  flex: none;
+}
+
+.rs-head-name {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+}
+
+.rs-head-tag {
+  font-size: 10.5px;
+  color: var(--rs-ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.rs-head-meta {
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--rs-ink-2);
+  line-height: 1.7;
+}
+
+.rs-head-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--rs-ink);
+  letter-spacing: -0.01em;
+}
+
+.rs-head-range {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #eaf1fa;
+  color: var(--rs-brand);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.rs-head-sub {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--rs-ink-3);
+}
+
+/* ---- summary tiles ---- */
+
+.rs-summary {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.rs-tile {
+  border: 1px solid var(--rs-line);
+  border-radius: 11px;
+  padding: 11px 12px 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  min-width: 0;
+}
+
+.rs-tile.is-good {
+  border-color: #cde9d9;
+  background: linear-gradient(180deg, #ffffff 0%, #f3fbf6 100%);
+}
+.rs-tile.is-bad {
+  border-color: #f4cdc9;
+  background: linear-gradient(180deg, #ffffff 0%, #fef5f4 100%);
+}
+.rs-tile.is-warn {
+  border-color: #f0dcc0;
+  background: linear-gradient(180deg, #ffffff 0%, #fdf8f1 100%);
+}
+.rs-tile.is-featured {
+  border-color: #b9d0ee;
+  background: linear-gradient(180deg, #ffffff 0%, #eef4fc 100%);
+}
+
+.rs-tile-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: var(--rs-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-tile-value {
+  margin-top: 5px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: var(--rs-ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  word-break: break-word;
+}
+
+.rs-tile.is-good .rs-tile-value {
+  color: var(--rs-good);
+}
+.rs-tile.is-bad .rs-tile-value {
+  color: var(--rs-bad);
+}
+.rs-tile.is-warn .rs-tile-value {
+  color: var(--rs-warn);
+}
+.rs-tile.is-featured .rs-tile-value {
+  color: var(--rs-brand);
+  font-size: 21px;
+}
+
+.rs-tile-sub {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--rs-ink-2);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ---- chart ---- */
+
+.rs-chart {
+  margin-top: 20px;
+  border: 1px solid var(--rs-line);
+  border-radius: 11px;
+  padding: 14px 16px 12px;
+  background: #fcfdff;
+}
+
+.rs-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rs-chart-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rs-ink);
+}
+
+.rs-chart-unit {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--rs-ink-3);
+}
+
+.rs-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 132px;
+  padding-top: 20px;
+  border-bottom: 1px solid var(--rs-line);
+  box-sizing: content-box;
+}
+
+.rs-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+  position: relative;
+}
+
+.rs-bar-fill {
+  width: 100%;
+  max-width: 54px;
+  border-radius: 5px 5px 0 0;
+  min-height: 2px;
+  background: linear-gradient(180deg, #5b9be6 0%, #1b5db1 100%);
+}
+
+.rs-bar-fill.is-danger {
+  background: linear-gradient(180deg, #ef6a60 0%, #d93025 100%);
+}
+.rs-bar-fill.is-success {
+  background: linear-gradient(180deg, #4db873 0%, #1e8a44 100%);
+}
+.rs-bar-fill.is-warn {
+  background: linear-gradient(180deg, #e0a24e 0%, #b45309 100%);
+}
+
+.rs-bar-value {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--rs-ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rs-bar-labels {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rs-bar-label {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-size: 9px;
+  color: var(--rs-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- table ---- */
+
+.rs-table-wrap {
+  margin-top: 20px;
+  border: 1px solid var(--rs-line);
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+.rs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  table-layout: fixed;
+}
+
+.rs-table th {
+  text-align: left;
+  padding: 9px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--rs-ink-2);
+  background: var(--rs-panel);
+  border-bottom: 1px solid var(--rs-line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rs-line-2);
+  color: var(--rs-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-table tbody tr:nth-child(even) td {
+  background: #fbfcfe;
+}
+
+.rs-table td.num,
+.rs-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-table td.mid,
+.rs-table th.mid {
+  text-align: center;
+}
+
+.rs-table td.key {
+  font-weight: 600;
+}
+
+.rs-table tfoot td {
+  padding: 10px;
+  font-weight: 700;
+  color: var(--rs-ink);
+  background: #eef2f8;
+  border-top: 2px solid var(--rs-brand);
+  border-bottom: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* ---- note + footer ---- */
+
+.rs-note {
+  margin-top: 12px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--rs-ink-2);
+  background: #f8fafd;
+  border-left: 3px solid var(--rs-brand);
+  border-radius: 0 8px 8px 0;
+  padding: 9px 12px;
+}
+
+.rs-sign {
+  margin-top: 26px;
+  display: flex;
+  gap: 56px;
+  font-size: 10.5px;
+  color: var(--rs-ink-2);
+}
+
+.rs-sign-slot {
+  flex: 1;
+  border-top: 1px solid #b9c0cf;
+  padding-top: 6px;
+}
+
+.rs-foot {
+  margin-top: 22px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rs-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rs-ink-3);
+}
+
+/* Repeated page header in a paginated PDF export — identity block only. */
+.rs--band {
+  padding: 40px 44px 0;
+}
+
+/* Screen-only scale wrapper: the sheet is 1123px wide, so on narrow screens we
+   shrink it rather than letting the page scroll sideways. */
+.rs-scale {
+  overflow: hidden;
+}
+
+.rs-scale-inner {
+  transform-origin: top left;
+}
+
 /* Print */
 @media print {
   .no-print {
@@ -1218,5 +1630,18 @@ html.dark .glass-panel {
     box-shadow: none;
     border-color: #d0d7de;
     break-inside: avoid;
+  }
+
+  /* The sheet already renders at print width, so let it fill the page. */
+  .rs-scale {
+    overflow: visible !important;
+  }
+  .rs-scale-inner {
+    transform: none !important;
+  }
+  .rs {
+    width: 100% !important;
+    box-shadow: none !important;
+    padding: 0 !important;
   }
 }

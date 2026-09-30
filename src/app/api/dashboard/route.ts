@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { ok, handler } from "@/lib/api";
 import { getVaults } from "@/lib/vault";
 import { getSettings } from "@/lib/settings";
-import { D, startOfMonth } from "@/lib/money";
+import { D, startOfMonth, toUsd } from "@/lib/money";
 import type { Prisma } from "@prisma/client";
 
 export const GET = handler("dashboard", async () => {
@@ -19,20 +19,16 @@ export const GET = handler("dashboard", async () => {
   // we report both: netProfit (sales − COGS) and revenueVsPurchases.
   // All amounts are normalized to USD equivalent using each transaction's exchange rate.
   const rate = D(settings.exchangeRate);
-  const toUsd = (amount: Prisma.Decimal.Value, currency: string, txRate?: Prisma.Decimal.Value | null) => {
-    const a = D(amount);
-    if (currency !== "IQD") return a;
-    const r = D(txRate ?? 0).gt(0) ? D(txRate) : rate;
-    return r.gt(0) ? a.div(r) : a;
-  };
+  const toUsdLocal = (amount: Prisma.Decimal.Value, currency: string, txRate?: Prisma.Decimal.Value | null) =>
+    toUsd(amount, currency, txRate, rate);
 
   const revenue = D(salesAll._sum.totalAmount ?? 0); // raw sum, kept for reference
   const purchaseTotal = D(purchasesAll._sum.totalPrice ?? 0);
 
   // USD-normalized revenue/COGS across all sales
   const allSalesForPnl = await prisma.sale.findMany({ select: { currency: true, exchangeRate: true, totalAmount: true, cogs: true } });
-  const revenueUsd = allSalesForPnl.reduce((acc, s) => acc.plus(toUsd(s.totalAmount, s.currency, s.exchangeRate)), D(0));
-  const cogsUsd = allSalesForPnl.reduce((acc, s) => acc.plus(toUsd(s.cogs, s.currency, s.exchangeRate)), D(0));
+  const revenueUsd = allSalesForPnl.reduce((acc, s) => acc.plus(toUsdLocal(s.totalAmount, s.currency, s.exchangeRate)), D(0));
+  const cogsUsd = allSalesForPnl.reduce((acc, s) => acc.plus(toUsdLocal(s.cogs, s.currency, s.exchangeRate)), D(0));
   const netProfit = revenueUsd.minus(cogsUsd);
 
   // Monthly P&L series (last 12 months)
@@ -51,8 +47,8 @@ export const GET = handler("dashboard", async () => {
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
     const m = monthMap.get(key);
     if (m) {
-      const revUsd = Number(toUsd(s.totalAmount, s.currency, s.exchangeRate));
-      const cogsUsdM = Number(toUsd(s.cogs, s.currency, s.exchangeRate));
+      const revUsd = Number(toUsdLocal(s.totalAmount, s.currency, s.exchangeRate));
+      const cogsUsdM = Number(toUsdLocal(s.cogs, s.currency, s.exchangeRate));
       m.revenue += revUsd;
       m.cost += cogsUsdM;
       m.profit += revUsd - cogsUsdM;
@@ -140,9 +136,9 @@ export const GET = handler("dashboard", async () => {
   const dueSales = await prisma.sale.findMany({ select: { dueAmount: true, currency: true, exchangeRate: true } });
   const paidDues = await prisma.customerPayment.findMany({ select: { amount: true, currency: true, exchangeRate: true } });
   const customerDues = dueSales.reduce(
-    (acc, s) => acc.plus(toUsd(s.dueAmount, s.currency, s.exchangeRate)),
+    (acc, s) => acc.plus(toUsdLocal(s.dueAmount, s.currency, s.exchangeRate)),
     D(0)
-  ).minus(paidDues.reduce((acc, p) => acc.plus(toUsd(p.amount, p.currency, p.exchangeRate)), D(0)));
+  ).minus(paidDues.reduce((acc, p) => acc.plus(toUsdLocal(p.amount, p.currency, p.exchangeRate)), D(0)));
 
   return ok({
     salesThisMonth: D(salesMonth._sum.totalAmount ?? 0).toFixed(2),

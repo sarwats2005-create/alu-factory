@@ -8,6 +8,26 @@ export const D = (v: Prisma.Decimal.Value | null | undefined) =>
 export const toNum = (v: Prisma.Decimal.Value | null | undefined): number =>
   D(v).toNumber();
 
+/**
+ * Normalize an amount to its USD equivalent.
+ *
+ * Sales and purchases can be recorded in either USD or IQD, so any report that
+ * adds them together must convert first. We always prefer the rate the
+ * transaction was written with (history must never re-price itself) and fall
+ * back to the current singleton rate when the row has none.
+ */
+export function toUsd(
+  amount: Prisma.Decimal.Value | null | undefined,
+  currency: string | null | undefined,
+  txRate?: Prisma.Decimal.Value | null,
+  fallbackRate?: Prisma.Decimal.Value | null
+): Prisma.Decimal {
+  const a = D(amount);
+  if (currency !== "IQD") return a;
+  const rate = D(txRate ?? 0).gt(0) ? D(txRate) : D(fallbackRate ?? 0);
+  return rate.gt(0) ? a.div(rate) : a;
+}
+
 /** Format money for display. IQD shows 0 decimals, USD 2. */
 export function fmtMoney(v: Prisma.Decimal.Value | number | string | null | undefined, currency?: string): string {
   const n = D(v as Prisma.Decimal.Value).toNumber();

@@ -129,6 +129,8 @@ export interface SpecularButtonProps
   onClick?: MouseEventHandler<HTMLElement>;
   className?: string;
   type?: "button" | "submit" | "reset";
+  /** Marks the control as working; announced by screen readers while async. */
+  "aria-busy"?: boolean;
   /** Associates a submit/reset button with a form elsewhere in the DOM. */
   form?: string;
   /** Renders a next/link anchor instead of a button (blue CTA links). */
@@ -234,6 +236,7 @@ export default function SpecularButton({
   form,
   href,
   style,
+  "aria-busy": ariaBusy,
 }: SpecularButtonProps) {
   const btnRef = useRef<HTMLElement | null>(null);
   const fxRef = useRef<HTMLSpanElement | null>(null);
@@ -549,6 +552,7 @@ export default function SpecularButton({
       type={type}
       disabled={disabled}
       aria-disabled={disabled || undefined}
+      aria-busy={ariaBusy || undefined}
       onClick={onClick}
       form={form}
       className={classes}
