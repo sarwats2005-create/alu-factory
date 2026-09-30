@@ -8,6 +8,7 @@ import { Icon, type IconName } from "@/components/icons";
 import ThemeToggle from "@/components/ThemeToggle";
 import ExchangeRateFab from "@/components/ExchangeRateFab";
 import PageTransition from "@/components/PageTransition";
+import TableEnhancer from "@/components/TableEnhancer";
 import { t, isRtl, type Lang } from "@/lib/i18n";
 import type { SessionUser } from "@/lib/auth";
 
@@ -126,10 +127,24 @@ export default function AppShell({
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 pt-6 pb-5">
         <Logo size={34} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-bold tracking-[0.08em] text-[13.5px] leading-tight text-white">ALU FACTORY</p>
-          <p className="text-[10.5px] text-white/45 leading-tight mt-0.5">{t("tagline", lang)}</p>
+          <p className="text-[10.5px] text-white/55 leading-tight mt-0.5">{t("tagline", lang)}</p>
         </div>
+        {/* Alerts were only reachable on mobile; desktop users need the same signal. */}
+        <button
+          onClick={() => setAlertsOpen((v) => !v)}
+          className="relative w-8 h-8 rounded-lg flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+          aria-label={`${t("alerts", lang)}${unread ? ` (${unread})` : ""}`}
+          title={t("alerts", lang)}
+        >
+          <Icon name="bell" size={17} />
+          {unread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 bg-[#D93025] text-white text-[9.5px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1 border-2 border-[#10233d]">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Nav */}
@@ -150,7 +165,7 @@ export default function AppShell({
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-white truncate leading-tight">{user.fullName}</p>
-            <p className="text-[11px] text-white/45 truncate">{user.email}</p>
+            <p className="text-[11px] text-white/55 truncate">{user.email}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -298,13 +313,14 @@ export default function AppShell({
 
       {/* ===== Floating exchange-rate CTA (every page) ===== */}
       <ExchangeRateFab />
+      <TableEnhancer />
 
       {/* ===== Alerts popover ===== */}
       {alertsOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setAlertsOpen(false)} />
           <div
-            className="fixed z-50 top-14 right-3 left-3 sm:left-auto sm:w-[380px] card p-2 no-print"
+            className="fixed z-50 top-14 right-3 left-3 sm:left-auto sm:w-[380px] md:top-4 md:right-auto md:left-[calc(var(--sidebar-w)+12px)] card p-2 no-print"
             style={{ boxShadow: "var(--shadow-pop)" }}
             role="dialog"
             aria-label="Alerts"

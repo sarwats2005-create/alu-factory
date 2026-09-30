@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, Badge, Skeleton, Pagination, Button, Input, Select, Textarea } from "@/components/ui";
+import { Card, Badge, Skeleton, Pagination, Button, Input, Select, Textarea, SearchInput, EmptyState } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { toast } from "@/components/Toast";
 import { fmtMoney } from "@/lib/money";
@@ -120,14 +120,9 @@ export default function InventoryPage() {
       </div>
 
       <Card className="p-4">
-        <div className="flex flex-wrap gap-3 mb-4">
-          <input
-            placeholder="Search by name or SKU…"
-            onChange={(e) => onSearch(e.target.value)}
-            className="inp flex-1 min-w-[200px]"
-            aria-label="Search inventory"
-          />
-          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="inp max-w-[160px]" aria-label="Filter status">
+        <div className="toolbar">
+          <SearchInput className="grow" placeholder="Search by name or SKU…" onSearch={onSearch} />
+          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="inp" aria-label="Filter status">
             <option value="">All statuses</option>
             <option value="in">In Stock</option>
             <option value="low">Low Stock</option>
@@ -138,18 +133,18 @@ export default function InventoryPage() {
         {loading ? (
           <Skeleton rows={6} />
         ) : rows.length === 0 ? (
-          <div className="text-center py-14 px-6">
-            <p className="text-sm text-[#6B7280] max-w-sm mx-auto">
-              No inventory yet. Purchase raw material from a beneficiary to add stock.
-            </p>
-            <Button className="mt-4" onClick={() => router.push("/pos/purchase")}>New Purchase</Button>
-          </div>
+          <EmptyState
+            icon="box"
+            title="No inventory yet"
+            message="Purchase raw material from a beneficiary to add stock."
+            cta="New Purchase"
+            onCta={() => router.push("/pos/purchase")}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="data">
               <thead>
                 <tr>
-                  <th>SKU</th>
                   <th>Product</th>
                   <th>Type</th>
                   <th className="num">Bought</th>
@@ -162,19 +157,24 @@ export default function InventoryPage() {
               <tbody>
                 {rows.map((item) => (
                   <tr key={item.id}>
-                    <td><span className="code">{item.sku}</span></td>
-                    <td className="font-medium">
-                      <Link href={`/inventory/${item.id}`} className="hover:text-[#1B5DB1]">{item.name}</Link>
+                    <td>
+                      <Link href={`/inventory/${item.id}`} className="block hover:text-[#1B5DB1]">
+                        <span className="block font-medium">{item.name}</span>
+                        <span className="code text-muted text-xs">{item.sku}</span>
+                      </Link>
                     </td>
-                    <td className="text-[#6B7280]">{item.aluminumType}</td>
+                    <td className="text-muted">{item.aluminumType}</td>
                     <td className="num">{fmtMoney(item.totalPurchased)}<span className="unit">kg</span></td>
                     <td className="num text-danger">{fmtMoney(item.totalProcessed)}<span className="unit">kg</span></td>
-                    <td className="num font-semibold">{fmtMoney(item.available)}<span className="unit">kg</span></td>
+                    <td className="num font-semibold">
+                      {fmtMoney(item.available)}<span className="unit">kg</span>
+                      <StockMeter available={Number(item.available)} bought={Number(item.totalPurchased)} status={item.status} />
+                    </td>
                     <td>
                       {item.status === "in" ? <Badge kind="green">In Stock</Badge> : item.status === "low" ? <Badge kind="orange">Low Stock</Badge> : <Badge kind="red">Out of Stock</Badge>}
                     </td>
                     <td>
-                      <div className="flex gap-1">
+                      <div className="row-actions">
                         <button
                           className="btn-ghost btn-sm"
                           disabled={Number(item.available) <= 0}
@@ -205,22 +205,22 @@ export default function InventoryPage() {
         {lossItem && (
           <form onSubmit={submitLoss} className="space-y-4">
             <div className="p-3 rounded-lg bg-[#F5F7FA] text-sm space-y-1">
-              <p><strong>{lossItem.name}</strong> <span className="text-[#6B7280]">({lossItem.sku})</span></p>
-              <p className="text-[#6B7280]">Current available: <strong className="text-[#1A1F36]">{fmtMoney(lossItem.available)} kg</strong></p>
+              <p><strong>{lossItem.name}</strong> <span className="text-muted">({lossItem.sku})</span></p>
+              <p className="text-muted">Current available: <strong className="text-[#1A1F36]">{fmtMoney(lossItem.available)} kg</strong></p>
             </div>
 
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setLossMode("PERCENT")}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${lossMode === "PERCENT" ? "border-[#1B5DB1] bg-[#E8F0FB] text-[#1B5DB1]" : "border-[#E2E8F0] text-[#6B7280]"}`}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${lossMode === "PERCENT" ? "border-[#1B5DB1] bg-[#E8F0FB] text-[#1B5DB1]" : "border-[#E2E8F0] text-muted"}`}
               >
                 By percentage
               </button>
               <button
                 type="button"
                 onClick={() => setLossMode("MANUAL")}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${lossMode === "MANUAL" ? "border-[#1B5DB1] bg-[#E8F0FB] text-[#1B5DB1]" : "border-[#E2E8F0] text-[#6B7280]"}`}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${lossMode === "MANUAL" ? "border-[#1B5DB1] bg-[#E8F0FB] text-[#1B5DB1]" : "border-[#E2E8F0] text-muted"}`}
               >
                 By exact remaining weight
               </button>
@@ -249,10 +249,13 @@ export default function InventoryPage() {
               />
             )}
 
-            <div className="text-sm text-[#6B7280] italic min-h-[20px]">
-              {previewKg &&
-                `Result: ${fmtMoney(previewKg.result)} kg available after ${previewKg.pct.toFixed(2)}% loss from ${fmtMoney(previewKg.original)} kg`}
-            </div>
+            {previewKg && (
+              <div className="p-3 rounded-lg bg-[#E8F0FB] text-sm" role="status">
+                <div className="sum-row !py-0.5"><span>Before</span><strong>{fmtMoney(previewKg.original)} kg</strong></div>
+                <div className="sum-row !py-0.5"><span>Loss</span><strong className="!text-[var(--danger)]">−{previewKg.pct.toFixed(2)}%</strong></div>
+                <div className="sum-row total !mt-1 !pt-2"><span>Available after</span><strong className="!text-[17px]">{fmtMoney(previewKg.result)} kg</strong></div>
+              </div>
+            )}
 
             <Input label="Date" type="date" value={lossDate} onChange={(e) => setLossDate(e.target.value)} />
             <Input label="Notes" value={lossNotes} onChange={(e) => setLossNotes(e.target.value)} />
@@ -265,5 +268,16 @@ export default function InventoryPage() {
         )}
       </Modal>
     </div>
+  );
+}
+
+/** Tiny remaining-stock bar: lets the eye spot low items without reading numbers. */
+function StockMeter({ available, bought, status }: { available: number; bought: number; status: string }) {
+  const pct = bought > 0 ? Math.max(0, Math.min(100, (available / bought) * 100)) : 0;
+  const color = status === "out" ? "var(--danger)" : status === "low" ? "var(--warn)" : "var(--success)";
+  return (
+    <span className="block h-1 mt-1.5 rounded-full bg-[var(--border)] overflow-hidden ms-auto max-w-[96px]" aria-hidden="true">
+      <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+    </span>
   );
 }

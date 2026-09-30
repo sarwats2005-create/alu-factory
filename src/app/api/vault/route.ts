@@ -34,15 +34,28 @@ export const GET = handler("vault", async (req) => {
     prisma.vaultTransaction.count({ where }),
   ]);
 
-  // Aggregate totals per vault
-  const usdAgg = await prisma.vaultTransaction.aggregate({
-    where: { vaultCurrency: "USD" },
+  // Money in / out per vault, net of undo entries: a reversal's "out" cancels
+  // an earlier "in" (and vice versa), so an undone sale is neither income nor spending.
+  const byType = await prisma.vaultTransaction.groupBy({
+    by: ["vaultCurrency", "type"],
     _sum: { amountIn: true, amountOut: true },
   });
-  const iqdAgg = await prisma.vaultTransaction.aggregate({
-    where: { vaultCurrency: "IQD" },
-    _sum: { amountIn: true, amountOut: true },
-  });
+  const flows = (cur: string) => {
+    let gin = D(0), gout = D(0), rin = D(0), rout = D(0);
+    for (const r of byType.filter((x) => x.vaultCurrency === cur)) {
+      const i = D(r._sum.amountIn ?? 0), o = D(r._sum.amountOut ?? 0);
+      if (r.type.endsWith("_REVERSAL")) { rin = rin.plus(i); rout = rout.plus(o); }
+      else { gin = gin.plus(i); gout = gout.plus(o); }
+    }
+    return { totalIn: gin.minus(rout), totalOut: gout.minus(rin), historyNet: gin.plus(rin).minus(gout).minus(rout) };
+  };
+  const usdFlow = flows("USD");
+  const iqdFlow = flows("IQD");
+  // Reconciliation: the sum of every history line must equal the stored balance.
+  const recon = (cur: "USD" | "IQD", net: ReturnType<typeof flows>["historyNet"]) => {
+    const diff = D(vaults[cur].balance).minus(net);
+    return { history: net.toFixed(2), balance: D(vaults[cur].balance).toFixed(2), difference: diff.toFixed(2), ok: diff.abs().lt(0.01) };
+  };
 
   // Balance history over the last 30 txs for sparkline
   const recentUsd = await prisma.vaultTransaction.findMany({
@@ -62,19 +75,20 @@ export const GET = handler("vault", async (req) => {
     vaults: {
       USD: {
         balance: D(vaults.USD.balance).toFixed(2),
-        totalIn: D(usdAgg._sum.amountIn ?? 0).toFixed(2),
-        totalOut: D(usdAgg._sum.amountOut ?? 0).toFixed(2),
+        totalIn: usdFlow.totalIn.toFixed(2),
+        totalOut: usdFlow.totalOut.toFixed(2),
         history: recentUsd,
       },
       IQD: {
         balance: D(vaults.IQD.balance).toFixed(2),
-        totalIn: D(iqdAgg._sum.amountIn ?? 0).toFixed(2),
-        totalOut: D(iqdAgg._sum.amountOut ?? 0).toFixed(2),
+        totalIn: iqdFlow.totalIn.toFixed(2),
+        totalOut: iqdFlow.totalOut.toFixed(2),
         history: recentIqd,
       },
     },
     exchangeRate: D(settings.exchangeRate).toFixed(4),
     usdEquivalent: D(vaults.USD.balance).plus(D(vaults.IQD.balance).div(D(settings.exchangeRate))).toFixed(2),
+    reconciliation: { USD: recon("USD", usdFlow.historyNet), IQD: recon("IQD", iqdFlow.historyNet) },
     transactions,
     total,
     page,

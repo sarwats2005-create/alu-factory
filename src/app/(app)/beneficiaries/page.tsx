@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Card, EmptyState, Badge, Skeleton, Pagination, Button } from "@/components/ui";
-import { Modal } from "@/components/Modal";
+import { Card, EmptyState, Badge, Skeleton, Pagination, Button, SearchInput } from "@/components/ui";
+import { Modal, ConfirmDialog } from "@/components/Modal";
 import { toast } from "@/components/Toast";
+import { balanceText } from "@/components/Accounting";
 
 interface BenRow {
   id: string;
@@ -107,12 +108,9 @@ export default function BeneficiariesPage() {
       </div>
 
       <Card className="p-4">
-        <input
-          placeholder="Search by name…"
-          onChange={(e) => onSearch(e.target.value)}
-          className="inp mb-4"
-          aria-label="Search beneficiaries"
-        />
+        <div className="toolbar">
+          <SearchInput className="grow" placeholder="Search by name…" onSearch={onSearch} />
+        </div>
 
         {loading ? (
           <Skeleton rows={6} />
@@ -132,7 +130,7 @@ export default function BeneficiariesPage() {
                   <th>Beneficiary</th>
                   <th>Phone</th>
                   <th>Balance State</th>
-                  <th className="text-right">Due Amount</th>
+                  <th className="text-right">Factory owes</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -140,11 +138,14 @@ export default function BeneficiariesPage() {
                 {rows.map((b) => (
                   <tr key={b.id}>
                     <td>
-                      <Link href={`/beneficiaries/${b.id}`} className="font-medium hover:text-[#1B5DB1]">
-                        {b.fullName}
+                      <Link href={`/beneficiaries/${b.id}`} className="flex items-center gap-2.5 hover:text-[#1B5DB1]">
+                        <span className="w-9 h-9 rounded-full bg-[#E8F0FB] text-[#1B5DB1] flex items-center justify-center text-sm font-semibold shrink-0">
+                          {b.fullName.slice(0, 2).toUpperCase()}
+                        </span>
+                        <span className="font-medium">{b.fullName}</span>
                       </Link>
                     </td>
-                    <td className="text-[#6B7280]">{b.phone || "—"}</td>
+                    <td className="text-muted tabular" dir="ltr">{b.phone || "—"}</td>
                     <td>
                       {b.state === "factory_owes" ? (
                         <Badge kind="red">Factory owes beneficiary</Badge>
@@ -154,14 +155,14 @@ export default function BeneficiariesPage() {
                         <Badge kind="green">Settled</Badge>
                       )}
                     </td>
-                    <td className={`text-right font-semibold tabular-nums ${Number(b.due) > 0 ? "text-[#D93025]" : "text-[#6B7280]"}`}>
-                      ${fmtMoneySafe(b.due)}
+                    <td className={`text-right font-semibold tabular-nums ${Number(b.due) > 0 ? "text-[#D93025]" : "text-muted"}`}>
+                      {Number(b.due) > 0 ? balanceText({ USD: (b as any).dueUsd ?? b.due, IQD: (b as any).dueIqd ?? "0", usdEquivalent: b.due }) : "$0.00"}
                     </td>
                     <td>
-                      <div className="flex gap-1">
+                      <div className="row-actions">
                         <Link href={`/beneficiaries/${b.id}`} className="btn-ghost btn-sm">View</Link>
                         <button onClick={() => { setEditing(b); setForm({ fullName: b.fullName, phone: b.phone || "", address: b.address || "" }); setModalOpen(true); }} className="btn-ghost btn-sm">Edit</button>
-                        <button onClick={() => setDeleting(b)} className="btn-ghost btn-sm text-[#D93025]">Delete</button>
+                        <button onClick={() => setDeleting(b)} className="btn-ghost btn-sm is-danger">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -197,15 +198,16 @@ export default function BeneficiariesPage() {
         </form>
       </Modal>
 
-      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete Beneficiary">
-        <p className="text-sm">
-          Delete <strong>{deleting?.fullName}</strong>? This action cannot be undone.
-        </p>
-        <div className="mt-6 flex justify-end gap-3">
-          <button onClick={() => setDeleting(null)} className="btn-secondary">Cancel</button>
-          <Button variant="danger" busy={busy} onClick={doDelete}>Delete</Button>
-        </div>
-      </Modal>
+      <ConfirmDialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={doDelete}
+        danger
+        busy={busy}
+        title="Delete Beneficiary"
+        confirmLabel="Delete Beneficiary"
+        message={`Delete ${deleting?.fullName ?? ""}? This action cannot be undone.`}
+      />
     </div>
   );
 }

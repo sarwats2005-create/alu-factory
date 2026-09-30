@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { D, parseDateInput } from "./money";
+import { D, parseDateInput, toUsd } from "./money";
 import { AppError } from "./api";
 import { Prisma } from "@prisma/client";
 import { applyVaultMovement, convertToVault, assertRateNeeded } from "./vault";
@@ -41,18 +41,87 @@ function assertNonNegative(v: Prisma.Decimal.Value, label: string) {
   if (D(v).lt(0)) throw new AppError(`${label} cannot be negative.`, 400, "VALIDATION");
 }
 
+/**
+ * The exchange rate recorded on a transaction. It is stored on EVERY
+ * transaction (not only cross-currency ones) so that reports can always turn
+ * an IQD amount into USD at the rate that applied that day — history must
+ * never re-price itself when today's rate changes. Conversion between vaults
+ * still only happens when the two currencies differ.
+ */
 async function rateFor(
   tx: Client,
   txCurrency: string,
   vaultCurrency: string
 ): Promise<Prisma.Decimal | null> {
-  const needed = assertRateNeeded(txCurrency, vaultCurrency, txCurrency !== vaultCurrency ? 1 : null);
-  if (!needed) return null;
   const s = await tx.setting.findUnique({ where: { id: "singleton" } });
   const rate = D(s?.exchangeRate ?? 0);
-  if (rate.lte(0))
-    throw new AppError("Exchange rate must be set in Settings before using cross-currency vaults.", 400);
-  return rate;
+  if (txCurrency !== vaultCurrency) {
+    assertRateNeeded(txCurrency, vaultCurrency, rate);
+    return rate;
+  }
+  return rate.gt(0) ? rate : null;
+}
+
+async function currentRate(tx: Client): Promise<Prisma.Decimal> {
+  const s = await tx.setting.findUnique({ where: { id: "singleton" } });
+  return D(s?.exchangeRate ?? 0);
+}
+
+/**
+ * Weighted-average purchase cost of one kg of a SKU, in USD.
+ * Each purchase converts at its own recorded rate (falling back to today's
+ * rate for old rows that have none) — an IQD purchase is never read as dollars.
+ */
+export async function avgBuyPriceUsd(tx: Client | typeof prisma, sku: string, rate: Prisma.Decimal): Promise<Prisma.Decimal> {
+  const purchases = await tx.purchase.findMany({
+    where: { sku },
+    select: { totalPrice: true, weightKg: true, currency: true, exchangeRate: true },
+  });
+  let costUsd = D(0);
+  let kg = D(0);
+  for (const p of purchases) {
+    costUsd = costUsd.plus(toUsd(p.totalPrice, p.currency, p.exchangeRate, rate));
+    kg = kg.plus(D(p.weightKg));
+  }
+  return kg.gt(0) ? costUsd.div(kg) : D(0);
+}
+
+/** Cash handed over at the moment of a sale/purchase can never exceed its total. */
+function assertCashWithinTotal(cashPaid: Prisma.Decimal, total: Prisma.Decimal, currency: string, what: string) {
+  if (cashPaid.gt(total)) {
+    const fmt = (v: Prisma.Decimal) => (currency === "IQD" ? `${v.toFixed(0)} IQD` : `$${v.toFixed(2)}`);
+    throw new AppError(
+      `Cash paid (${fmt(cashPaid)}) is more than the ${what} total (${fmt(total)}). ` +
+        `Enter at most the total; extra money paid in advance should be recorded as a separate payment.`,
+      400,
+      "OVERPAID"
+    );
+  }
+}
+
+/** After reversing/re-applying a purchase, no item may end up with negative stock. */
+async function assertStockNotNegative(tx: Client, itemId: string, purchaseNumber: string) {
+  const item = await tx.inventoryItem.findUnique({ where: { id: itemId } });
+  if (item && D(item.available).lt(0)) {
+    const used = D(item.available).abs();
+    throw new AppError(
+      `Can't change ${purchaseNumber}: ${used.toFixed(2)} kg of ${item.name} (${item.sku}) from this purchase ` +
+        `has already been sold or lost in processing. Delete or edit those sales first, or reduce the change.`,
+      409,
+      "STOCK_ALREADY_USED"
+    );
+  }
+}
+
+/** Globally unique, sequential payment references: PAY-C-00001 (customers), PAY-B-00001 (beneficiaries). */
+async function nextPaymentRef(tx: Client, kind: "C" | "B"): Promise<string> {
+  const prefix = `PAY-${kind}-`;
+  const last =
+    kind === "C"
+      ? await tx.customerPayment.findFirst({ where: { reference: { startsWith: prefix } }, orderBy: { reference: "desc" }, select: { reference: true } })
+      : await tx.beneficiaryPayment.findFirst({ where: { reference: { startsWith: prefix } }, orderBy: { reference: "desc" }, select: { reference: true } });
+  const seq = last ? parseInt(last.reference.slice(prefix.length), 10) || 0 : 0;
+  return `${prefix}${String(seq + 1).padStart(5, "0")}`;
 }
 
 // ============ PURCHASE ============
@@ -85,6 +154,7 @@ export async function createPurchase(userId: string, input: PurchaseInput) {
     if (!beneficiary) throw new AppError("Beneficiary not found.", 404);
 
     const totalPrice = weightKg.times(unitPrice); // SERVER-CALCULATED
+    assertCashWithinTotal(cashPaid, totalPrice, input.currency, "purchase");
     const dueAmount = totalPrice.minus(cashPaid); // SERVER-CALCULATED
     const exchangeRate = await rateFor(tx, input.currency, input.vaultCurrency);
 
@@ -224,6 +294,7 @@ export async function updatePurchase(userId: string, purchaseId: string, input: 
     if (!beneficiary) throw new AppError("Beneficiary not found.", 404);
 
     const totalPrice = weightKg.times(unitPrice);
+    assertCashWithinTotal(cashPaid, totalPrice, input.currency, "purchase");
     const dueAmount = totalPrice.minus(cashPaid);
     const exchangeRate = await rateFor(tx, input.currency, input.vaultCurrency);
 
@@ -282,6 +353,8 @@ export async function updatePurchase(userId: string, purchaseId: string, input: 
         movedAt: txDate,
       },
     });
+    await assertStockNotNegative(tx, existing.itemId!, existing.number);
+    if (item.id !== existing.itemId) await assertStockNotNegative(tx, item.id, existing.number);
 
     if (cashPaid.gt(0)) {
       const cashInVault = convertToVault(cashPaid, input.currency, input.vaultCurrency, exchangeRate ?? 1);
@@ -305,7 +378,10 @@ export async function updatePurchase(userId: string, purchaseId: string, input: 
 export async function deletePurchase(userId: string, purchaseId: string) {
   return transact(async (tx) => {
     const existing = await reversePurchase(tx, purchaseId);
-    await tx.vaultTransaction.deleteMany({ where: { purchaseId } });
+    await assertStockNotNegative(tx, existing.itemId!, existing.number);
+    // Keep the original vault entry (unlinked) next to its reversal: history
+    // must show both the money and its undo, never silently lose a line.
+    await tx.vaultTransaction.updateMany({ where: { purchaseId }, data: { purchaseId: null } });
     await tx.purchase.delete({ where: { id: purchaseId } });
     return existing;
   });
@@ -341,6 +417,7 @@ export async function createSale(userId: string, input: SaleInput) {
     if (!customer) throw new AppError("Customer not found.", 404);
 
     // Validate and recalculate all line items server-side
+    const rateNow = await currentRate(tx);
     let totalAmount = D(0);
     let cogs = D(0);
     const lines: { itemId: string; saleType: string; weightKg: Prisma.Decimal; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; costKg: Prisma.Decimal }[] = [];
@@ -359,25 +436,14 @@ export async function createSale(userId: string, input: SaleInput) {
 
       const lineTotal = weight.times(price); // SERVER-CALCULATED
       totalAmount = totalAmount.plus(lineTotal);
-      // COGS: weighted average buy price per kg across purchases of this SKU.
-      // Normalized to USD: purchase totals in IQD are converted at each purchase's own rate.
-      const purchases = await tx.purchase.findMany({
-        where: { sku: item.sku },
-        select: { totalPrice: true, weightKg: true, currency: true, exchangeRate: true },
-      });
-      let boughtCostUsd = D(0);
-      let boughtKg = D(0);
-      for (const p of purchases) {
-        const cost = p.currency === "IQD" ? D(p.totalPrice).div(D(p.exchangeRate ?? 1)) : D(p.totalPrice);
-        boughtCostUsd = boughtCostUsd.plus(cost);
-        boughtKg = boughtKg.plus(D(p.weightKg));
-      }
-      const avgBuyPrice = boughtKg.gt(0) ? boughtCostUsd.div(boughtKg) : D(0); // USD per kg
+      // COGS: weighted average buy price per kg of this SKU, always in USD.
+      const avgBuyPrice = await avgBuyPriceUsd(tx, item.sku, rateNow);
       cogs = cogs.plus(weight.times(avgBuyPrice)); // USD
 
       lines.push({ itemId: li.itemId, saleType: li.saleType ?? "RAW", weightKg: weight, unitPrice: price, lineTotal, costKg: avgBuyPrice });
     }
 
+    assertCashWithinTotal(cashPaid, totalAmount, input.currency, "invoice");
     const dueAmount = totalAmount.minus(cashPaid); // SERVER-CALCULATED
     const exchangeRate = await rateFor(tx, input.currency, input.vaultCurrency);
     const invoiceNo = await nextNumber(tx, "sale");
@@ -498,6 +564,7 @@ export async function updateSale(userId: string, saleId: string, input: SaleInpu
     const customer = await tx.customer.findUnique({ where: { id: input.customerId } });
     if (!customer) throw new AppError("Customer not found.", 404);
 
+    const rateNow = await currentRate(tx);
     let totalAmount = D(0);
     let cogs = D(0);
     const lines: { itemId: string; saleType: string; weightKg: Prisma.Decimal; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal }[] = [];
@@ -518,24 +585,14 @@ export async function updateSale(userId: string, saleId: string, input: SaleInpu
 
       const lineTotal = weight.times(price);
       totalAmount = totalAmount.plus(lineTotal);
-      // Same USD-normalized COGS calculation as createSale
-      const purchases = await tx.purchase.findMany({
-        where: { sku: item.sku },
-        select: { totalPrice: true, weightKg: true, currency: true, exchangeRate: true },
-      });
-      let boughtCostUsd = D(0);
-      let boughtKg = D(0);
-      for (const p of purchases) {
-        const cost = p.currency === "IQD" ? D(p.totalPrice).div(D(p.exchangeRate ?? 1)) : D(p.totalPrice);
-        boughtCostUsd = boughtCostUsd.plus(cost);
-        boughtKg = boughtKg.plus(D(p.weightKg));
-      }
-      const avgBuyPrice = boughtKg.gt(0) ? boughtCostUsd.div(boughtKg) : D(0);
+      // Same USD COGS calculation as createSale
+      const avgBuyPrice = await avgBuyPriceUsd(tx, item.sku, rateNow);
       cogs = cogs.plus(weight.times(avgBuyPrice));
 
       lines.push({ itemId: li.itemId, saleType: li.saleType ?? "RAW", weightKg: weight, unitPrice: price, lineTotal });
     }
 
+    assertCashWithinTotal(cashPaid, totalAmount, input.currency, "invoice");
     const dueAmount = totalAmount.minus(cashPaid);
     const exchangeRate = await rateFor(tx, input.currency, input.vaultCurrency);
 
@@ -605,7 +662,7 @@ export async function deleteSale(userId: string, saleId: string) {
   return transact(async (tx) => {
     const existing = await reverseSale(tx, saleId);
     await tx.saleLineItem.deleteMany({ where: { saleId } });
-    await tx.vaultTransaction.deleteMany({ where: { saleId } });
+    await tx.vaultTransaction.updateMany({ where: { saleId }, data: { saleId: null } });
     await tx.sale.delete({ where: { id: saleId } });
     return existing;
   });
@@ -718,10 +775,94 @@ export async function createVaultOp(userId: string, input: VaultOpInput) {
   });
 }
 
+export interface VaultExchangeInput {
+  fromCurrency: "USD" | "IQD";
+  /** Amount taken out of the "from" vault, in its currency. */
+  amount: Prisma.Decimal.Value;
+  /** 1 USD = rate IQD — the rate actually received from the money changer. */
+  rate: Prisma.Decimal.Value;
+  notes?: string;
+  opDate: string;
+}
+
+/**
+ * Currency exchange between the two vaults (e.g. selling dollars for dinars).
+ * One operation, two legs: money out of one vault, the converted amount into
+ * the other. Total wealth only changes by the difference between the rate
+ * used and the system rate — nothing is income or expense.
+ */
+export async function createVaultExchange(userId: string, input: VaultExchangeInput) {
+  const amount = D(input.amount);
+  const rate = D(input.rate);
+  assertPositive(amount, "Amount");
+  assertPositive(rate, "Exchange rate");
+  const opDate = parseDateInput(input.opDate);
+  const from = input.fromCurrency;
+  const to = from === "USD" ? "IQD" : "USD";
+  const received = from === "USD" ? amount.times(rate) : amount.div(rate);
+  const fmt = (c: string, v: Prisma.Decimal) => (c === "IQD" ? `${v.toFixed(0)} IQD` : `$${v.toFixed(2)}`);
+
+  return transact(async (tx) => {
+    const op = await tx.vaultOperation.create({
+      data: {
+        vaultCurrency: from,
+        opType: "EXCHANGE",
+        amount,
+        label: `${fmt(from, amount)} → ${fmt(to, received)} @ 1 USD = ${rate.toFixed(2)} IQD`,
+        notes: input.notes ?? null,
+        opDate,
+      },
+    });
+    const reference = `EXC-${op.id.slice(-6).toUpperCase()}`;
+    await applyVaultMovement(tx, {
+      vaultCurrency: from,
+      amountOut: amount,
+      type: "EXCHANGE",
+      reference,
+      description: `Exchanged ${fmt(from, amount)} into ${fmt(to, received)} (${to} vault)`,
+      txCurrency: from,
+      exchangeRate: rate,
+      txDate: opDate,
+      vaultOpId: op.id,
+    });
+    await applyVaultMovement(tx, {
+      vaultCurrency: to,
+      amountIn: received,
+      type: "EXCHANGE",
+      reference,
+      description: `Received ${fmt(to, received)} from exchanging ${fmt(from, amount)} (${from} vault)`,
+      txCurrency: from,
+      exchangeRate: rate,
+      txDate: opDate,
+      vaultOpId: op.id,
+    });
+    return op;
+  });
+}
+
 export async function deleteVaultOp(userId: string, opId: string) {
   return transact(async (tx) => {
-    const op = await tx.vaultOperation.findUnique({ where: { id: opId } });
+    const op = await tx.vaultOperation.findUnique({ where: { id: opId }, include: { transactions: true } });
     if (!op) throw new AppError("Vault operation not found.", 404);
+    if (op.opType === "EXCHANGE") {
+      // Undo each leg exactly as it was booked.
+      for (const leg of op.transactions) {
+        await applyVaultMovement(tx, {
+          vaultCurrency: leg.vaultCurrency,
+          amountIn: leg.amountOut,
+          amountOut: leg.amountIn,
+          type: "EXCHANGE_REVERSAL",
+          reference: leg.reference,
+          description: `Undo of exchange — ${op.label}`,
+          txCurrency: leg.currency,
+          exchangeRate: leg.exchangeRate,
+          txDate: new Date(),
+        });
+      }
+      await tx.vaultTransaction.updateMany({ where: { vaultOpId: opId }, data: { vaultOpId: null } });
+      await tx.vaultOperation.delete({ where: { id: opId } });
+      return op;
+    }
     await applyVaultMovement(tx, {
       vaultCurrency: op.vaultCurrency,
       amountIn: op.opType === "WITHDRAW" ? op.amount : undefined,
@@ -732,7 +873,7 @@ export async function deleteVaultOp(userId: string, opId: string) {
       txCurrency: op.vaultCurrency,
       txDate: new Date(),
     });
-    await tx.vaultTransaction.deleteMany({ where: { vaultOpId: opId } });
+    await tx.vaultTransaction.updateMany({ where: { vaultOpId: opId }, data: { vaultOpId: null } });
     await tx.vaultOperation.delete({ where: { id: opId } });
     return op;
   });
@@ -757,8 +898,7 @@ export async function createCustomerPayment(userId: string, customerId: string, 
     const customer = await tx.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new AppError("Customer not found.", 404);
     const exchangeRate = await rateFor(tx, input.currency, input.vaultCurrency);
-    const count = await tx.customerPayment.count({ where: { customerId } });
-    const reference = `PAY-C-${String(count + 1).padStart(5, "0")}`;
+    const reference = await nextPaymentRef(tx, "C");
 
     const payment = await tx.customerPayment.create({
       data: {
@@ -797,8 +937,7 @@ export async function createBeneficiaryPayment(userId: string, beneficiaryId: st
     const beneficiary = await tx.beneficiary.findUnique({ where: { id: beneficiaryId } });
     if (!beneficiary) throw new AppError("Beneficiary not found.", 404);
     const exchangeRate = await rateFor(tx, input.currency, input.vaultCurrency);
-    const count = await tx.beneficiaryPayment.count({ where: { beneficiaryId } });
-    const reference = `PAY-B-${String(count + 1).padStart(5, "0")}`;
+    const reference = await nextPaymentRef(tx, "B");
 
     const payment = await tx.beneficiaryPayment.create({
       data: {
@@ -825,5 +964,49 @@ export async function createBeneficiaryPayment(userId: string, beneficiaryId: st
       beneficiaryPaymentId: payment.id,
     });
     return payment;
+  });
+}
+
+/** Undo a customer payment: money leaves the vault again and the customer owes it again. */
+export async function deleteCustomerPayment(userId: string, customerId: string, paymentId: string) {
+  return transact(async (tx) => {
+    const p = await tx.customerPayment.findUnique({ where: { id: paymentId }, include: { customer: true } });
+    if (!p || p.customerId !== customerId) throw new AppError("Payment not found.", 404);
+    const inVault = convertToVault(p.amount, p.currency, p.vaultCurrency, p.exchangeRate ?? 1);
+    await applyVaultMovement(tx, {
+      vaultCurrency: p.vaultCurrency,
+      amountOut: inVault,
+      type: "CUSTOMER_PAYMENT_REVERSAL",
+      reference: p.reference,
+      description: `Undo of payment ${p.reference} from ${p.customer.fullName}`,
+      txCurrency: p.currency,
+      exchangeRate: p.exchangeRate,
+      txDate: new Date(),
+    });
+    await tx.vaultTransaction.updateMany({ where: { customerPaymentId: paymentId }, data: { customerPaymentId: null } });
+    await tx.customerPayment.delete({ where: { id: paymentId } });
+    return p;
+  });
+}
+
+/** Undo a beneficiary payment: money returns to the vault and the factory owes it again. */
+export async function deleteBeneficiaryPayment(userId: string, beneficiaryId: string, paymentId: string) {
+  return transact(async (tx) => {
+    const p = await tx.beneficiaryPayment.findUnique({ where: { id: paymentId }, include: { beneficiary: true } });
+    if (!p || p.beneficiaryId !== beneficiaryId) throw new AppError("Payment not found.", 404);
+    const inVault = convertToVault(p.amount, p.currency, p.vaultCurrency, p.exchangeRate ?? 1);
+    await applyVaultMovement(tx, {
+      vaultCurrency: p.vaultCurrency,
+      amountIn: inVault,
+      type: "BENEFICIARY_PAYMENT_REVERSAL",
+      reference: p.reference,
+      description: `Undo of payment ${p.reference} to ${p.beneficiary.fullName}`,
+      txCurrency: p.currency,
+      exchangeRate: p.exchangeRate,
+      txDate: new Date(),
+    });
+    await tx.vaultTransaction.updateMany({ where: { beneficiaryPaymentId: paymentId }, data: { beneficiaryPaymentId: null } });
+    await tx.beneficiaryPayment.delete({ where: { id: paymentId } });
+    return p;
   });
 }

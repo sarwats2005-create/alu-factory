@@ -406,21 +406,26 @@ export default function ReportsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11.5px] font-semibold uppercase tracking-[0.05em] text-faint mr-1">Quick range</span>
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => applyPreset(p.id)}
-              className={`btn btn-sm ${preset === p.id ? "btn-primary" : "btn-secondary"}`}
-            >
-              {p.label}
-            </button>
-          ))}
+          <span className="text-[11.5px] font-semibold uppercase tracking-[0.05em] text-faint me-1">Quick range</span>
+          <div className="seg max-w-full overflow-x-auto" role="radiogroup" aria-label="Quick date range">
+            {PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={preset === p.id}
+                onClick={() => applyPreset(p.id)}
+                className={`!h-[30px] !px-3 !text-[12.5px] whitespace-nowrap ${preset === p.id ? "on" : ""}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           {preset === "custom" && (
             <span className="badge badge-blue">Custom range</span>
           )}
           {from || to ? (
-            <button className="btn btn-ghost btn-sm ml-auto" onClick={() => applyPreset("all")}>
+            <button className="btn btn-ghost btn-sm ms-auto" onClick={() => applyPreset("all")}>
               <Icon name="x" size={13} />
               Clear
             </button>

@@ -1,10 +1,25 @@
 import { ok, fail, handler, audit } from "@/lib/api";
-import { createVaultOp, deleteVaultOp } from "@/lib/transactions";
+import { createVaultOp, deleteVaultOp, createVaultExchange } from "@/lib/transactions";
 
 export const POST = handler("vault", async (req, user) => {
   const body = await req.json();
   const amount = Number(body.amount);
   if (!amount || amount <= 0) return fail("Amount must be greater than 0.", 400, "VALIDATION");
+
+  if (body.opType === "EXCHANGE") {
+    const rate = Number(body.rate);
+    if (!rate || rate <= 0) return fail("Exchange rate must be greater than 0.", 400, "VALIDATION");
+    const op = await createVaultExchange(user.id, {
+      fromCurrency: body.fromCurrency === "IQD" ? "IQD" : "USD",
+      amount,
+      rate,
+      notes: body.notes,
+      opDate: body.opDate,
+    });
+    await audit(user.id, "CREATE", "VAULT", op.id, { opType: "EXCHANGE", amount, from: op.vaultCurrency, rate });
+    return ok({ op }, 201);
+  }
+
   if (!body.label || !String(body.label).trim()) return fail("A source/reason label is required.", 400, "VALIDATION");
 
   const op = await createVaultOp(user.id, {

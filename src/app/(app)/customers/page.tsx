@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Card, EmptyState, Badge, Skeleton, Pagination, Button, Input } from "@/components/ui";
-import { Modal } from "@/components/Modal";
+import { Card, EmptyState, Badge, Skeleton, Pagination, Button, Input, SearchInput } from "@/components/ui";
+import { Modal, ConfirmDialog } from "@/components/Modal";
 import { toast } from "@/components/Toast";
-import { fmtMoney } from "@/lib/money";
+import { balanceText } from "@/components/Accounting";
 
 interface CustomerRow {
   id: string;
@@ -14,6 +14,8 @@ interface CustomerRow {
   address?: string | null;
   photo?: string | null;
   due: string;
+  dueUsd?: string;
+  dueIqd?: string;
   state: string;
 }
 
@@ -122,14 +124,9 @@ export default function CustomersPage() {
       </div>
 
       <Card className="p-4">
-        <div className="flex flex-wrap gap-3 mb-4">
-          <input
-            placeholder="Search by name…"
-            onChange={(e) => onSearch(e.target.value)}
-            className="inp flex-1 min-w-[200px]"
-            aria-label="Search customers"
-          />
-          <select value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1); }} className="inp max-w-[180px]" aria-label="Filter by balance">
+        <div className="toolbar">
+          <SearchInput className="grow" placeholder="Search by name…" onSearch={onSearch} />
+          <select value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1); }} className="inp" aria-label="Filter by balance">
             <option value="all">All balances</option>
             <option value="due">Customer owes factory</option>
             <option value="settled">Settled</option>
@@ -154,7 +151,7 @@ export default function CustomersPage() {
                   <th>Customer</th>
                   <th>Phone</th>
                   <th>Balance State</th>
-                  <th className="text-right">Due Amount</th>
+                  <th className="text-right">Owes factory</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -174,22 +171,24 @@ export default function CustomersPage() {
                         <span className="font-medium">{c.fullName}</span>
                       </Link>
                     </td>
-                    <td className="text-[#6B7280]">{c.phone || "—"}</td>
+                    <td className="text-muted tabular" dir="ltr">{c.phone || "—"}</td>
                     <td>
                       {c.state === "due" ? (
                         <Badge kind="red">Customer owes factory</Badge>
+                      ) : c.state === "credit" ? (
+                        <Badge kind="blue">Credit (paid ahead)</Badge>
                       ) : (
                         <Badge kind="green">Settled</Badge>
                       )}
                     </td>
-                    <td className={`text-right font-semibold tabular-nums ${Number(c.due) > 0 ? "text-[#D93025]" : "text-[#6B7280]"}`}>
-                      ${fmtMoney(c.due)}
+                    <td className={`text-right font-semibold tabular-nums ${Number(c.due) > 0 ? "text-[#D93025]" : "text-muted"}`}>
+                      {Number(c.due) > 0 ? balanceText({ USD: c.dueUsd ?? c.due, IQD: c.dueIqd ?? "0", usdEquivalent: c.due }) : "$0.00"}
                     </td>
                     <td>
-                      <div className="flex gap-1">
+                      <div className="row-actions">
                         <Link href={`/customers/${c.id}`} className="btn-ghost btn-sm">View</Link>
                         <button onClick={() => openEdit(c)} className="btn-ghost btn-sm">Edit</button>
-                        <button onClick={() => setDeleting(c)} className="btn-ghost btn-sm text-[#D93025]">Delete</button>
+                        <button onClick={() => setDeleting(c)} className="btn-ghost btn-sm is-danger">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -249,15 +248,16 @@ export default function CustomersPage() {
         </form>
       </Modal>
 
-      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete Customer">
-        <p className="text-sm">
-          Delete <strong>{deleting?.fullName}</strong>? This action cannot be undone.
-        </p>
-        <div className="mt-6 flex justify-end gap-3">
-          <button onClick={() => setDeleting(null)} className="btn-secondary">Cancel</button>
-          <Button variant="danger" busy={busy} onClick={doDelete}>Delete</Button>
-        </div>
-      </Modal>
+      <ConfirmDialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={doDelete}
+        danger
+        busy={busy}
+        title="Delete Customer"
+        confirmLabel="Delete Customer"
+        message={`Delete ${deleting?.fullName ?? ""}? This action cannot be undone.`}
+      />
     </div>
   );
 }

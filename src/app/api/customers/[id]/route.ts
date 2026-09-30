@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { ok, fail, handler, audit } from "@/lib/api";
-import { customerDue, customerTotals } from "@/lib/balances";
+import { customerBalance, customerTotals, customerLedger } from "@/lib/balances";
 
 export const GET = handler("customers", async (req, user, ctx) => {
   const { id } = await ctx.params;
@@ -16,9 +16,8 @@ export const GET = handler("customers", async (req, user, ctx) => {
   });
   if (!customer) return fail("Customer not found.", 404);
 
-  const due = await customerDue(id);
-  const totals = await customerTotals(id);
-  return ok({ customer, due: due.toFixed(2), totals });
+  const [balance, totals, ledger] = await Promise.all([customerBalance(id), customerTotals(id), customerLedger(id)]);
+  return ok({ customer, due: balance.usdEquivalent.toFixed(2), balance: { USD: balance.USD.toFixed(2), IQD: balance.IQD.toFixed(2), usdEquivalent: balance.usdEquivalent.toFixed(2) }, totals, ledger });
 });
 
 export const PUT = handler("customers", async (req, user, ctx) => {

@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [lang, setLang] = useState<"en" | "ku">("en");
   const [showPw, setShowPw] = useState(false);
+  const [capsOn, setCapsOn] = useState(false);
 
   const ku = lang === "ku";
   const t = (en: string, k: string) => (ku ? k : en);
@@ -88,7 +89,7 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-5 relative">
         <button
           onClick={() => setLang(ku ? "en" : "ku")}
-          className="absolute top-5 right-5 btn btn-secondary btn-sm"
+          className="absolute top-5 end-5 btn btn-secondary btn-sm"
         >
           {ku ? "English" : "کوردی"}
         </button>
@@ -113,7 +114,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="inp"
-                placeholder="blbas11@gmail.com"
+                placeholder="you@company.com"
                 autoComplete="email"
                 autoFocus
               />
@@ -127,19 +128,29 @@ export default function LoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="inp pr-11"
+                  onKeyUp={(e) => setCapsOn(e.getModifierState("CapsLock"))}
+                  onKeyDown={(e) => setCapsOn(e.getModifierState("CapsLock"))}
+                  onBlur={() => setCapsOn(false)}
+                  className="inp"
+                  style={{ paddingInlineEnd: 44 }}
                   placeholder="••••••••"
                   autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-[var(--text)] p-1"
+                  className="absolute end-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-[var(--text)] p-1"
                   aria-label={showPw ? "Hide password" : "Show password"}
                 >
                   <Icon name={showPw ? "eyeOff" : "eye"} size={15} />
                 </button>
               </div>
+              {capsOn && (
+                <span className="field-hint !text-[var(--warn)] flex items-center gap-1.5" role="status">
+                  <Icon name="alert" size={12} />
+                  {t("Caps Lock is on", "Caps Lock چالاکە")}
+                </span>
+              )}
             </label>
 
             <SpecularButton

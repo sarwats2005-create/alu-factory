@@ -12,9 +12,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, Badge, Button, Skeleton, Pagination } from "@/components/ui";
+import { Card, Badge, Button, Skeleton, Pagination, SearchInput, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { Modal } from "@/components/Modal";
+import { Modal, ConfirmDialog } from "@/components/Modal";
 import { InvoicePreview } from "@/components/Invoice";
 import { toast } from "@/components/Toast";
 import { fmtDate, fmtMoney } from "@/lib/money";
@@ -184,38 +184,46 @@ export default function InvoicesPage() {
           <h1 className="page-title">Invoices</h1>
           <p className="page-sub">Every invoice on record — save, print, or fix within 24 hours</p>
         </div>
-        <div className="flex gap-2 items-center">
-          {dirName ? (
-            <span className="text-xs text-[#6B7280] hidden sm:inline">Saving to: {dirName}</span>
-          ) : null}
-          <Button variant="secondary" icon="download" onClick={pickFolder}>
-            {dirName ? "Change Folder" : "Choose Folder"}
+        <div className="flex flex-wrap gap-2 items-center">
+          <Button variant="ghost" icon="folder" onClick={pickFolder} title={dirName ? `Saving to: ${dirName}` : "Choose where PDFs are saved"}>
+            {dirName ? dirName : "Choose Folder"}
           </Button>
-          <Button icon="receipt" busy={savingAll} onClick={saveAllPdf} disabled={!sales.length}>
+          <Button variant="secondary" icon="download" busy={savingAll} onClick={saveAllPdf} disabled={!sales.length}>
             Save All (page)
           </Button>
+          <Button icon="plus" onClick={() => router.push("/pos")}>New Sale</Button>
         </div>
       </div>
 
       <Card className="p-4">
-        <div className="flex flex-wrap gap-2 mb-3">
-          <input
-            className="inp flex-1 min-w-[200px]"
+        <div className="toolbar">
+          <SearchInput
+            className="grow"
             placeholder="Search invoice #…"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
+            onSearch={(v) => {
+              setQ(v);
               setPage(1);
             }}
           />
+          {!loading && sales.length > 0 && (
+            <div className="flex items-center gap-4 text-[12.5px] text-muted tabular" aria-label="Totals for this page">
+              <span>Total <strong className="text-[var(--text)]">${fmtMoney(totals.total)}</strong></span>
+              <span>Paid <strong className="text-success">${fmtMoney(totals.paid)}</strong></span>
+              <span>Due <strong className={totals.due > 0 ? "text-danger" : "text-[var(--text)]"}>${fmtMoney(totals.due)}</strong></span>
+            </div>
+          )}
         </div>
 
         {loading ? (
           <Skeleton rows={8} />
         ) : sales.length === 0 ? (
-          <p className="text-sm text-[#6B7280] py-10 text-center">
-            No invoices found. Create a sale in Point of Sale to generate your first invoice.
-          </p>
+          <EmptyState
+            icon="file"
+            title={q ? "No matching invoices" : "No invoices yet"}
+            message={q ? "Try a different invoice number." : "Create a sale in Point of Sale to generate your first invoice."}
+            cta={q ? undefined : "New Sale"}
+            onCta={() => router.push("/pos")}
+          />
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -277,7 +285,7 @@ export default function InvoicesPage() {
                           <Badge kind="blue">{s.vaultCurrency}</Badge>
                         </td>
                         <td>
-                          <div className="flex gap-1">
+                          <div className="row-actions">
                             <button
                               className="btn-ghost btn-sm"
                               onClick={async () => {
@@ -301,7 +309,7 @@ export default function InvoicesPage() {
                               </button>
                             )}
                             <button
-                              className="btn-ghost btn-sm text-[#D93025]"
+                              className="btn-ghost btn-sm is-danger"
                               onClick={() => setDeleting(s)}
                             >
                               Delete
@@ -315,13 +323,7 @@ export default function InvoicesPage() {
               </table>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
-              <p className="text-xs text-[#6B7280]">
-                This page: {sales.length} invoice{sales.length === 1 ? "" : "s"} · total{" "}
-                ${fmtMoney(totals.total)} · paid ${fmtMoney(totals.paid)} · due $
-                {fmtMoney(totals.due)}
-              </p>
-              <Pagination
+            <Pagination
                 page={page}
                 pageSize={pageSize}
                 total={total}
@@ -331,7 +333,6 @@ export default function InvoicesPage() {
                   setPage(1);
                 }}
               />
-            </div>
           </>
         )}
       </Card>
@@ -349,21 +350,18 @@ export default function InvoicesPage() {
         </Modal>
 
         {/* Delete confirm */}
-        <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete Invoice">
-          <p className="text-sm whitespace-pre-line">
-            {`Delete ${deleting?.invoiceNo}?
+        <ConfirmDialog
+          open={!!deleting}
+          onClose={() => setDeleting(null)}
+          onConfirm={doDelete}
+          danger
+          busy={busy}
+          title="Delete Invoice"
+          confirmLabel="Delete Invoice"
+          message={`Delete ${deleting?.invoiceNo ?? ""}?
 
 Inventory and vault effects will be reversed. This action cannot be undone.`}
-          </p>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="secondary" onClick={() => setDeleting(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" busy={busy} onClick={doDelete}>
-              Delete Invoice
-            </Button>
-          </div>
-        </Modal>
+        />
       </>
     );
   }

@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { ok, fail, handler, AppError, audit } from "@/lib/api";
 import { D, toNum } from "@/lib/money";
-import { customerDue } from "@/lib/balances";
+import { customerBalance } from "@/lib/balances";
+import { getSettings } from "@/lib/settings";
 
 export const GET = handler("customers", async (req) => {
   const url = new URL(req.url);
@@ -11,6 +12,26 @@ export const GET = handler("customers", async (req) => {
   const pageSize = Math.min(100, Math.max(10, parseInt(url.searchParams.get("pageSize") || "25", 10)));
 
   const where = q ? { fullName: { contains: q, mode: "insensitive" as const } } : {};
+  const rate = (await getSettings()).exchangeRate;
+  const withBalance = async (c: Awaited<ReturnType<typeof prisma.customer.findMany>>[number]) => {
+    const b = await customerBalance(c.id, rate);
+    return {
+      ...c,
+      due: b.usdEquivalent.toFixed(2),
+      dueUsd: b.USD.toFixed(2),
+      dueIqd: b.IQD.toFixed(2),
+      state: b.usdEquivalent.gt(0) ? "due" : b.usdEquivalent.lt(0) ? "credit" : "settled",
+    };
+  };
+
+  // A balance filter must run before paginating, or pages come back short
+  // and the total counts people the filter excluded.
+  if (filter !== "all") {
+    const all = await Promise.all((await prisma.customer.findMany({ where, orderBy: { fullName: "asc" } })).map(withBalance));
+    const matched = all.filter((r) => (filter === "settled" ? r.state !== "due" : r.state === filter));
+    return ok({ rows: matched.slice((page - 1) * pageSize, page * pageSize), total: matched.length, page, pageSize });
+  }
+
   const customers = await prisma.customer.findMany({
     where,
     orderBy: { fullName: "asc" },
@@ -18,22 +39,8 @@ export const GET = handler("customers", async (req) => {
     take: pageSize,
   });
   const total = await prisma.customer.count({ where });
-
-  // Compute balances
-  const rows = await Promise.all(
-    customers.map(async (c) => {
-      const due = await customerDue(c.id);
-      return {
-        ...c,
-        due: due.toFixed(2),
-        state: due.gt(0) ? "due" : "settled",
-      };
-    })
-  );
-
-  const filtered = filter === "all" ? rows : rows.filter((r) => r.state === filter);
-
-  return ok({ rows: filtered, total, page, pageSize });
+  const rows = await Promise.all(customers.map(withBalance));
+  return ok({ rows, total, page, pageSize });
 });
 
 export const POST = handler("customers", async (req, user) => {

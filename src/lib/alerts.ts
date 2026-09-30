@@ -2,6 +2,15 @@ import { prisma } from "./db";
 import { D } from "./money";
 import { getSettings } from "./settings";
 import { getVaults } from "./vault";
+import { customerBalance, beneficiaryBalance, type CurrencyBalance } from "./balances";
+
+/** "$240.00 + 1,500,000 IQD" — each currency as it is actually owed. */
+function owed(b: CurrencyBalance) {
+  const parts: string[] = [];
+  if (b.USD.gt(0)) parts.push(`$${b.USD.toFixed(2)}`);
+  if (b.IQD.gt(0)) parts.push(`${Number(b.IQD.toFixed(0)).toLocaleString("en-US")} IQD`);
+  return parts.join(" + ") || `$${b.usdEquivalent.toFixed(2)}`;
+}
 
 /** Recalculate alerts from current system state (simple, reliable snapshot approach). */
 export async function refreshAlerts() {
@@ -22,15 +31,14 @@ export async function refreshAlerts() {
   }[] = [];
 
   if (s.alertCustomerDue) {
-    const customers = await prisma.customer.findMany({ include: { sales: true, payments: true } });
+    const customers = await prisma.customer.findMany({ select: { id: true, fullName: true } });
     for (const c of customers) {
-      const due = c.sales.reduce((acc, sale) => acc.plus(D(sale.dueAmount)), D(0))
-        .minus(c.payments.reduce((acc, p) => acc.plus(D(p.amount)), D(0)));
-      if (due.gt(D(s.customerDueThreshold))) {
+      const bal = await customerBalance(c.id, D(s.exchangeRate));
+      if (bal.usdEquivalent.gt(D(s.customerDueThreshold))) {
         toCreate.push({
           type: "CUSTOMER_DUE",
           severity: "danger",
-          message: `Customer ${c.fullName} owes factory $${due.toFixed(2)}`,
+          message: `Customer ${c.fullName} owes factory ${owed(bal)}`,
           linkTo: `/customers/${c.id}`,
         });
       }
@@ -38,15 +46,14 @@ export async function refreshAlerts() {
   }
 
   if (s.alertBeneficiaryDue) {
-    const beneficiaries = await prisma.beneficiary.findMany({ include: { purchases: true, payments: true } });
+    const beneficiaries = await prisma.beneficiary.findMany({ select: { id: true, fullName: true } });
     for (const b of beneficiaries) {
-      const due = b.purchases.reduce((acc, p) => acc.plus(D(p.dueAmount)), D(0))
-        .minus(b.payments.reduce((acc, p) => acc.plus(D(p.amount)), D(0)));
-      if (due.gt(D(s.beneficiaryDueThreshold))) {
+      const bal = await beneficiaryBalance(b.id, D(s.exchangeRate));
+      if (bal.usdEquivalent.gt(D(s.beneficiaryDueThreshold))) {
         toCreate.push({
           type: "BENEFICIARY_DUE",
           severity: "warning",
-          message: `Factory owes ${b.fullName} $${due.toFixed(2)}`,
+          message: `Factory owes ${b.fullName} ${owed(bal)}`,
           linkTo: `/beneficiaries/${b.id}`,
         });
       }
@@ -62,7 +69,22 @@ export async function refreshAlerts() {
           type: "LOW_STOCK",
           severity: D(item.available).lte(0) ? "danger" : "warning",
           message: `${item.name} (${item.sku}) stock low — ${D(item.available).toFixed(2)} kg remaining`,
-          linkTo: `/inventory`,
+          linkTo: `/inventory/${item.id}`,
+        });
+      }
+    }
+  }
+
+  // A vault in deficit is always flagged (spec: negative balance → alert).
+  {
+    const { USD, IQD } = await getVaults();
+    for (const v of [USD, IQD]) {
+      if (D(v.balance).lt(0)) {
+        toCreate.push({
+          type: "VAULT_LOW",
+          severity: "danger",
+          message: `${v.currency} vault is in deficit: ${v.currency === "USD" ? "-$" + D(v.balance).abs().toFixed(2) : "-" + D(v.balance).abs().toFixed(0) + " IQD"}`,
+          linkTo: `/vault`,
         });
       }
     }
@@ -82,18 +104,36 @@ export async function refreshAlerts() {
   }
 
   if (s.alertOverdue) {
+    // Payments are applied to the oldest invoices first (per currency), so an
+    // invoice settled by a later payment is never reported as overdue.
     const cutoff = new Date(now.getTime() - s.overdueDays * 24 * 60 * 60 * 1000);
-    const sales = await prisma.sale.findMany({
-      where: { dueAmount: { gt: 0 }, saleDate: { lt: cutoff } },
-      include: { customer: true },
+    const customers = await prisma.customer.findMany({
+      select: {
+        id: true,
+        fullName: true,
+        sales: { where: { dueAmount: { gt: 0 } }, select: { saleDate: true, dueAmount: true, currency: true }, orderBy: { saleDate: "asc" } },
+        payments: { select: { amount: true, currency: true } },
+      },
     });
-    for (const sale of sales) {
-      toCreate.push({
-        type: "OVERDUE",
-        severity: "danger",
-        message: `${sale.customer.fullName} has overdue balance since ${sale.saleDate.toISOString().slice(0, 10)}`,
-        linkTo: `/customers/${sale.customerId}`,
-      });
+    for (const c of customers) {
+      let oldest: Date | null = null;
+      for (const cur of ["USD", "IQD"]) {
+        let credit = c.payments.filter((p) => p.currency === cur).reduce((a, p) => a.plus(D(p.amount)), D(0));
+        for (const sale of c.sales.filter((x) => x.currency === cur)) {
+          const open = D(sale.dueAmount).minus(credit);
+          credit = open.lt(0) ? open.abs() : D(0);
+          if (open.gt(0) && sale.saleDate < cutoff && (!oldest || sale.saleDate < oldest)) oldest = sale.saleDate;
+        }
+      }
+      if (oldest) {
+        const days = Math.floor((now.getTime() - oldest.getTime()) / 86_400_000);
+        toCreate.push({
+          type: "OVERDUE",
+          severity: "danger",
+          message: `${c.fullName} has an unpaid invoice from ${oldest.toISOString().slice(0, 10)} (${days} days)`,
+          linkTo: `/customers/${c.id}`,
+        });
+      }
     }
   }
 

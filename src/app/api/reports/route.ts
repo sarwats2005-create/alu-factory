@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { ok, fail, handler } from "@/lib/api";
 import { D, toUsd } from "@/lib/money";
+import { processingLossUsd, receivablesAndPayables } from "@/lib/accounting";
 import { getSettings } from "@/lib/settings";
 import type { Prisma } from "@prisma/client";
 
@@ -219,52 +220,69 @@ export const GET = handler("reports", async (req) => {
         select: { txDate: true, totalPrice: true, cashPaid: true, dueAmount: true, weightKg: true, currency: true, exchangeRate: true },
         orderBy: { txDate: "asc" },
       });
+      const loss = await processingLossUsd(rate, dw);
 
-      // Every figure below is USD-equivalent: IQD rows are divided by the rate
-      // they were written with, so history is never re-priced by a later rate.
+      // Income statement, USD equivalent. Revenue converts at each invoice's
+      // own rate; COGS is already stored in USD, so it is added as-is.
       const revenue = sales.reduce((a, s) => a + usdOf(s.totalAmount, s.currency, s.exchangeRate), 0);
-      const cogs = sales.reduce((a, s) => a + usdOf(s.cogs, s.currency, s.exchangeRate), 0);
-      const cash = sales.reduce((a, s) => a + usdOf(s.cashPaid, s.currency, s.exchangeRate), 0);
+      const cogs = sales.reduce((a, s) => a + n2(s.cogs), 0);
       const grossProfit = revenue - cogs;
-      const margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+      const lossCost = n2(loss.total);
+      const netProfit = grossProfit - lossCost;
+      const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+      const cash = sales.reduce((a, s) => a + usdOf(s.cashPaid, s.currency, s.exchangeRate), 0);
       const purchaseTotal = purchases.reduce((a, p) => a + usdOf(p.totalPrice, p.currency, p.exchangeRate), 0);
-      const purchaseDue = purchases.reduce((a, p) => a + usdOf(p.dueAmount, p.currency, p.exchangeRate), 0);
-      const customerDue = sales.reduce((a, s) => a + usdOf(s.dueAmount, s.currency, s.exchangeRate), 0);
       const kgSold = sales.reduce((a, s) => a + s.lineItems.reduce((b, l) => b + n2(l.weightKg), 0), 0);
       const kgBought = purchases.reduce((a, p) => a + n2(p.weightKg), 0);
+      const kgLost = n2(loss.kg);
       const avgInvoice = sales.length ? revenue / sales.length : 0;
+      // Balances are a snapshot of today (payments are not tied to one period).
+      const bal = await receivablesAndPayables(rate);
+      const receivable = n2(bal.receivable);
+      const payable = n2(bal.payable);
 
-      const monthly = new Map<string, { revenue: number; cogs: number }>();
+      const monthly = new Map<string, { revenue: number; cost: number }>();
+      const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
       for (const s of sales) {
-        const k = `${s.saleDate.getUTCFullYear()}-${String(s.saleDate.getUTCMonth() + 1).padStart(2, "0")}`;
-        const e = monthly.get(k) ?? { revenue: 0, cogs: 0 };
+        const e = monthly.get(monthKey(s.saleDate)) ?? { revenue: 0, cost: 0 };
         e.revenue += usdOf(s.totalAmount, s.currency, s.exchangeRate);
-        e.cogs += usdOf(s.cogs, s.currency, s.exchangeRate);
-        monthly.set(k, e);
+        e.cost += n2(s.cogs);
+        monthly.set(monthKey(s.saleDate), e);
+      }
+      for (const ev of loss.events) {
+        const e = monthly.get(monthKey(ev.processedAt)) ?? { revenue: 0, cost: 0 };
+        e.cost += n2(ev.valueUsd);
+        monthly.set(monthKey(ev.processedAt), e);
       }
       const chart: Chart = {
-        title: "Revenue by month",
+        title: "Net profit by month",
         unit: "usd",
         data: thinSeries(
           [...monthly.entries()]
             .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-            .map(([k, v]) => ({
-              label: new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "2-digit" }),
-              value: Math.round(v.revenue * 100) / 100,
-              color: "brand" as const,
-            }))
+            .map(([k, v]) => {
+              const profit = Math.round((v.revenue - v.cost) * 100) / 100;
+              return {
+                label: new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "2-digit" }),
+                value: profit,
+                color: (profit >= 0 ? "success" : "danger") as "success" | "danger",
+              };
+            })
         ),
       };
 
+      // `0 - x` rather than `-x` so a zero cost prints as 0.00, not -0.00.
+      const neg = (x: number) => (x === 0 ? 0 : -x);
       const pnlRows = [
-        { metric: "Revenue", amount: revenue, base: revenue, note: `${sales.length} invoice${sales.length === 1 ? "" : "s"}` },
-        // `0 - x` rather than `-x` so a zero COGS prints as 0.00, not -0.00.
-        { metric: "Cost of Goods Sold", amount: cogs === 0 ? 0 : -cogs, base: revenue, note: `${kgSold.toLocaleString("en-US")} kg sold` },
-        { metric: "Gross Profit", amount: grossProfit, base: revenue, note: `${pct(margin)} margin` },
-        { metric: "Cash Collected", amount: cash, base: revenue, note: "From sales" },
-        { metric: "Customer Outstanding", amount: customerDue, base: revenue, note: "Unpaid on sales" },
-        { metric: "Purchases (COGS basis)", amount: purchaseTotal, base: revenue, note: `${kgBought.toLocaleString("en-US")} kg bought` },
-        { metric: "Factory Outstanding", amount: purchaseDue, base: revenue, note: "Unpaid on purchases" },
+        { metric: "Revenue (sales)", amount: revenue, note: `What customers were invoiced — ${sales.length} invoice${sales.length === 1 ? "" : "s"}` },
+        { metric: "− Cost of goods sold", amount: neg(cogs), note: `What the ${kgSold.toLocaleString("en-US")} kg you sold originally cost you` },
+        { metric: "= Gross profit", amount: grossProfit, note: "Earned on the metal you sold" },
+        { metric: "− Processing loss", amount: neg(lossCost), note: `${kgLost.toLocaleString("en-US")} kg lost in cutting/melting, valued at purchase cost` },
+        { metric: "= Net profit", amount: netProfit, note: `${pct(margin)} of revenue — what the business actually made` },
+        { metric: "Cash collected at sale", amount: cash, note: "Money received when invoicing (not profit)" },
+        { metric: "Purchases made", amount: purchaseTotal, note: `${kgBought.toLocaleString("en-US")} kg bought — becomes cost only when sold or lost` },
+        { metric: "Customers owe you (today)", amount: receivable, note: "Receivable — unpaid invoices minus later payments" },
+        { metric: "You owe suppliers (today)", amount: payable, note: "Payable — unpaid purchases minus later payments" },
       ];
 
       return build({
@@ -272,27 +290,30 @@ export const GET = handler("reports", async (req) => {
         subtitle: "Profit and loss, all figures in USD equivalent",
         summary: [
           { key: "revenue", label: "Revenue", value: usd0(revenue), sub: `${sales.length} invoices`, tone: "neutral" },
-          { key: "cogs", label: "Cost of Goods Sold", value: usd0(cogs), sub: `${kgSold.toLocaleString("en-US")} kg`, tone: "neutral" },
-          { key: "profit", label: "Gross Profit", value: usd0(grossProfit), sub: `${pct(margin)} margin`, tone: grossProfit >= 0 ? "good" : "bad" },
-          { key: "purchases", label: "Purchases", value: usd0(purchaseTotal), sub: `${kgBought.toLocaleString("en-US")} kg`, tone: "neutral" },
-          { key: "customerDue", label: "Customer Due", value: usd0(customerDue), sub: "Receivable", tone: customerDue > 0 ? "bad" : "good" },
-          { key: "purchaseDue", label: "Factory Due", value: usd0(purchaseDue), sub: "Payable", tone: purchaseDue > 0 ? "bad" : "good" },
+          { key: "cogs", label: "Cost of Goods Sold", value: usd0(cogs), sub: `${kgSold.toLocaleString("en-US")} kg sold`, tone: "neutral" },
+          { key: "loss", label: "Processing Loss", value: usd0(lossCost), sub: `${kgLost.toLocaleString("en-US")} kg lost`, tone: lossCost > 0 ? "bad" : "neutral" },
+          { key: "profit", label: "Net Profit", value: usd0(netProfit), sub: `${pct(margin)} margin`, tone: netProfit >= 0 ? "good" : "bad" },
+          { key: "customerDue", label: "Customers Owe You", value: usd0(receivable), sub: "Receivable, today", tone: receivable > 0 ? "bad" : "good" },
+          { key: "purchaseDue", label: "You Owe Suppliers", value: usd0(payable), sub: "Payable, today", tone: payable > 0 ? "bad" : "good" },
         ],
         chart,
         columns: [
-          { key: "metric", label: "Metric", width: "40%" },
+          { key: "metric", label: "Line", width: "30%" },
           { key: "amount", label: "Amount (USD)", align: "right" },
           { key: "share", label: "% of Revenue", align: "right" },
-          { key: "note", label: "Detail", width: "24%" },
+          { key: "note", label: "What it means", width: "38%" },
         ],
-        rows: pnlRows.map((r) => ({
+        rows: pnlRows.map((r, i) => ({
           metric: r.metric,
           amount: usd(r.amount),
-          share: r.base > 0 ? pct((r.amount / r.base) * 100) : "—",
+          share: i < 5 && revenue > 0 ? pct((r.amount / revenue) * 100) : "—",
           note: r.note,
         })),
         totals: { metric: "Average invoice value", amount: usd(avgInvoice), share: "—", note: "" },
-        note: "All amounts are USD equivalents. Transactions recorded in IQD are converted using the exchange rate stored on the transaction itself.",
+        note:
+          "How to read this: Revenue − Cost of goods sold = Gross profit; Gross profit − Processing loss = Net profit. " +
+          "Buying metal is not a loss — it becomes a cost only when that metal is sold or lost. " +
+          "IQD transactions are converted at the rate stored on each transaction.",
       });
     }
 

@@ -67,24 +67,34 @@ export default function DashboardPage() {
   return (
     <div className="space-y-5">
       <PageHead title={t("dashTitle")} sub={t("dashSub")}>
+        <Link href="/reports" className="btn btn-ghost">
+          <Icon name="chart" size={15} />
+          {t("navReports")}
+        </Link>
+        <Link href="/pos/purchase" className="btn btn-secondary">
+          <Icon name="box" size={15} />
+          {t("newPurchase")}
+        </Link>
         <SpecularButton href="/pos">
           <Icon name="plus" size={15} />
           {t("newSale")}
         </SpecularButton>
-        <Link href="/reports" className="btn btn-secondary">
-          {t("navReports")}
-        </Link>
       </PageHead>
 
-      {/* P&L leads — the most important number in the system, given room. */}
-      <div className="grid md:grid-cols-3 gap-3">
+      {/* Tier 1 — the three numbers that drive decisions: are we profitable,
+          how much cash do we hold, and who owes us. Given room and read first. */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <StatCard
-          className="md:col-span-1"
           featured
+          className="col-span-2 xl:col-span-1"
           label={t("pnlAllTime")}
           value={`${pnl < 0 ? "−" : ""}$${fmtMoney(Math.abs(pnl))}`}
           tone={pnl >= 0 ? "good" : "bad"}
-          sub={pnl >= 0 ? t("salesExceedCost") : t("costExceedSales")}
+          sub={
+            Number(data.processingLoss) > 0
+              ? `Sales $${fmtMoney(data.salesAllTime)} − metal cost $${fmtMoney(data.cogs)} − processing loss $${fmtMoney(data.processingLoss)}`
+              : `Sales $${fmtMoney(data.salesAllTime)} − cost of metal sold $${fmtMoney(data.cogs)}`
+          }
           icon={pnl >= 0 ? "TrendingUp" : "TrendingDown"}
         />
         <StatCard
@@ -94,14 +104,30 @@ export default function DashboardPage() {
           icon="shield"
         />
         <StatCard
+          label={t("customerDues")}
+          value={`$${fmtMoney(data.customerDues ?? 0)}`}
+          tone={Number(data.customerDues ?? 0) > 0 ? "bad" : "neutral"}
+          sub={Number(data.customerDues ?? 0) > 0 ? t("owedByCustomers") : t("nothingOutstanding")}
+          icon="scale2"
+        />
+        <StatCard
+          label={t("supplierDues")}
+          value={`$${fmtMoney(data.supplierDues ?? 0)}`}
+          tone={Number(data.supplierDues ?? 0) > 0 ? "bad" : "neutral"}
+          sub={Number(data.supplierDues ?? 0) > 0 ? t("owedToSuppliers") : t("nothingOutstanding")}
+          icon="handshake"
+        />
+      </div>
+
+      {/* Tier 2 — context. Smaller, so it never competes with tier 1. */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <StatCard
           label={t("salesThisMonth")}
           value={`$${fmtMoney(data.salesThisMonth)}`}
           sub={`${t("allTime")} $${fmtMoney(data.salesAllTime)}`}
           icon="receipt"
         />
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+        <StatCard label={t("purchasesAllTime")} value={`$${fmtMoney(data.purchaseTotal)}`} icon="box" />
         <StatCard
           label={t("bestCustomer")}
           value={data.bestCustomer?.name ?? "—"}
@@ -113,15 +139,6 @@ export default function DashboardPage() {
           value={data.bestBeneficiary?.name ?? "—"}
           sub={data.bestBeneficiary ? `$${fmtMoney(data.bestBeneficiary.value)} ${t("supplied")}` : t("noPurchasesYet")}
           icon="handshake"
-        />
-        <StatCard label={t("revenueAllTime")} value={`$${fmtMoney(data.salesAllTime)}`} icon="TrendingUp" />
-        <StatCard label={t("purchasesAllTime")} value={`$${fmtMoney(data.purchaseTotal)}`} icon="box" />
-        <StatCard
-          label={t("customerDues")}
-          value={`$${fmtMoney(data.customerDues ?? 0)}`}
-          tone={Number(data.customerDues ?? 0) > 0 ? "bad" : "neutral"}
-          sub={Number(data.customerDues ?? 0) > 0 ? t("owedByCustomers") : t("nothingOutstanding")}
-          icon="scale2"
         />
       </div>
 
@@ -180,7 +197,7 @@ export default function DashboardPage() {
                     fontSize: 12.5,
                   }}
                 />
-                <Line type="monotone" dataKey="revenue" stroke="#1B5DB1" strokeWidth={2.2} dot={false} activeDot={{ r: 4 }} />
+                <Line type="monotone" dataKey="revenue" stroke="var(--brand)" strokeWidth={2.4} dot={{ r: 2.5, fill: "var(--brand)" }} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -196,7 +213,7 @@ export default function DashboardPage() {
       <Card pad={false}>
         <div className="flex items-center justify-between px-5 pt-4 pb-3">
           <h2 className="section-title">{t("recentTransactions")}</h2>
-          <Link href="/pos" className="text-[12.5px] font-semibold text-[#1B5DB1] hover:underline">
+          <Link href="/invoices" className="text-[12.5px] font-semibold text-[var(--brand)] hover:underline">
             {t("viewAll")}
           </Link>
         </div>
@@ -289,7 +306,7 @@ function TopListCard({
               </div>
               <div className="h-1.5 rounded-full bg-[var(--border-2)] overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-[#1B5DB1] transition-all"
+                  className="h-full rounded-full bg-[var(--brand)] transition-all"
                   style={{ width: `${Math.max(4, (r.value / max) * 100)}%` }}
                 />
               </div>

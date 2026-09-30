@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { ok, fail, handler, audit } from "@/lib/api";
-import { beneficiaryDue } from "@/lib/balances";
+import { beneficiaryBalance } from "@/lib/balances";
 
 export const GET = handler("beneficiaries", async (req) => {
   const url = new URL(req.url);
@@ -19,10 +19,13 @@ export const GET = handler("beneficiaries", async (req) => {
 
   const rows = await Promise.all(
     beneficiaries.map(async (b) => {
-      const due = await beneficiaryDue(b.id);
+      const bal = await beneficiaryBalance(b.id);
+      const due = bal.usdEquivalent;
       return {
         ...b,
         due: due.toFixed(2),
+        dueUsd: bal.USD.toFixed(2),
+        dueIqd: bal.IQD.toFixed(2),
         state: due.gt(0) ? "factory_owes" : due.lt(0) ? "overpaid" : "settled",
       };
     })

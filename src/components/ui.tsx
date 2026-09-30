@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import Link from "next/link";
 import { fmtMoney } from "@/lib/money";
 import { Icon, type IconName } from "@/components/icons";
 import SpecularButton from "@/components/SpecularButton";
@@ -173,8 +174,8 @@ export function StatCard({
   return (
     <div className={`card stat ${featured ? "featured" : ""} ${className}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className={`stat-label ${featured ? "!text-[#1B5DB1]" : ""}`}>{label}</p>
-        {icon && <Icon name={icon} size={featured ? 16 : 15} className={featured ? "text-[#1B5DB1] shrink-0" : "text-faint shrink-0"} />}
+        <p className={`stat-label ${featured ? "!text-[var(--brand)]" : ""}`}>{label}</p>
+        {icon && <Icon name={icon} size={featured ? 16 : 15} className={featured ? "text-[var(--brand)] shrink-0" : "text-faint shrink-0"} />}
       </div>
       <p className={`stat-value ${featured ? "!text-[28px] md:!text-[34px]" : ""} ${color}`}>{value}</p>
       {sub && <p className="stat-sub">{sub}</p>}
@@ -226,7 +227,7 @@ export function Pagination({
           <select
             value={pageSize}
             onChange={(e) => onPageSize(Number(e.target.value))}
-            className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-[12.5px] bg-white"
+            className="inp inp-sm"
             aria-label="Rows per page"
           >
             {[25, 50, 100].map((s) => (
@@ -309,6 +310,17 @@ export function PageHead({
   );
 }
 
+/* ---------- Back link (detail pages) ---------- */
+
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="back-link">
+      <Icon name="arrowLeft" size={14} />
+      {children}
+    </Link>
+  );
+}
+
 /* ---------- Money ---------- */
 
 export function Money({
@@ -349,11 +361,13 @@ export function SearchInput({
 }) {
   return (
     <div className={`relative ${className}`}>
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none">
+      <span className="absolute start-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none">
         <Icon name="search" size={15} />
       </span>
       <input
-        className="inp pl-9"
+        type="search"
+        className="inp"
+        style={{ paddingInlineStart: 36 }}
         placeholder={placeholder}
         onChange={(e) => onSearch(e.target.value)}
         aria-label={placeholder}

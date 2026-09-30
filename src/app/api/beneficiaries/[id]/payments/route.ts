@@ -1,5 +1,5 @@
 import { ok, fail, handler, audit } from "@/lib/api";
-import { createBeneficiaryPayment } from "@/lib/transactions";
+import { createBeneficiaryPayment, deleteBeneficiaryPayment } from "@/lib/transactions";
 
 export const POST = handler("beneficiaries", async (req, user, ctx) => {
   const { id } = await ctx.params;
@@ -16,4 +16,13 @@ export const POST = handler("beneficiaries", async (req, user, ctx) => {
   });
   await audit(user.id, "CREATE", "BENEFICIARIES", payment.id, { kind: "payment", amount: body.amount, beneficiaryId: id });
   return ok({ payment }, 201);
+});
+
+export const DELETE = handler("beneficiaries", async (req, user, ctx) => {
+  const { id } = await ctx.params;
+  const paymentId = new URL(req.url).searchParams.get("paymentId");
+  if (!paymentId) return fail("Payment id required.", 400);
+  const p = await deleteBeneficiaryPayment(user.id, id, paymentId);
+  await audit(user.id, "DELETE", "BENEFICIARIES", paymentId, { kind: "payment", reference: p.reference, amount: String(p.amount), currency: p.currency, beneficiaryId: id });
+  return ok({ success: true });
 });

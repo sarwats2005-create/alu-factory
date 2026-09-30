@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Badge, Skeleton, Button } from "@/components/ui";
+import { Card, Badge, Skeleton, Button, StatCard, BackLink } from "@/components/ui";
 import { fmtDate, fmtMoney } from "@/lib/money";
 
 export default function InventoryItemPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [item, setItem] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [threshold, setThreshold] = useState("");
@@ -49,61 +50,59 @@ export default function InventoryItemPage() {
   }
 
   if (loading) return <Skeleton rows={8} />;
-  if (!item) return <p className="text-sm text-[#6B7280]">Item not found.</p>;
+  if (!item) return <p className="text-sm text-muted">Item not found.</p>;
 
   return (
     <div className="space-y-5">
-      <Link href="/inventory" className="btn btn-ghost btn-sm w-fit">← Inventory</Link>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">{item.name}</h1>
-          <p className="text-sm text-[#6B7280]">
-            SKU <span className="font-mono">{item.sku}</span> · {item.aluminumType}
+          <BackLink href="/inventory">Inventory</BackLink>
+          <div className="flex items-center gap-3">
+            <h1 className="page-title">{item.name}</h1>
+            {Number(item.available) <= 0 ? <Badge kind="red">Out of Stock</Badge> : Number(item.available) < Number(item.lowStockKg ?? item.threshold ?? 50) ? <Badge kind="orange">Low Stock</Badge> : <Badge kind="green">In Stock</Badge>}
+          </div>
+          <p className="entity-meta">
+            <span className="code">{item.sku}</span>
+            <span>{item.aluminumType}</span>
           </p>
         </div>
-        <div className="flex items-end gap-2">
-          <label className="block">
-            <span className="lbl">Low-stock threshold (kg)</span>
+        <Button icon="plus" className="no-print" onClick={() => router.push(`/pos/purchase?restock=${encodeURIComponent(item.sku)}`)}>
+          Restock
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Available" value={`${fmtMoney(item.available)} kg`} tone="good" icon="box" />
+        <StatCard label="Total Purchased" value={`${fmtMoney(item.totalPurchased)} kg`} />
+        <StatCard
+          label="Loss Applied"
+          value={`${fmtMoney(item.totalProcessed)} kg`}
+          tone={Number(item.totalProcessed) > 0 ? "bad" : "neutral"}
+          sub={Number(item.totalPurchased) > 0 ? `${((Number(item.totalProcessed) / Number(item.totalPurchased)) * 100).toFixed(1)}% of purchased` : undefined}
+        />
+        <div className="card stat">
+          <p className="stat-label">Low-stock alert at</p>
+          <div className="flex items-center gap-2">
             <input
               type="number"
               step="0.01"
               min="0"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
-              className="inp max-w-[140px]"
-              placeholder="Default"
+              className="inp"
+              placeholder="Default (50)"
+              aria-label="Low-stock threshold (kg)"
             />
-          </label>
-          <Button variant="secondary" busy={busy} onClick={saveThreshold}>Save</Button>
+            <Button variant="secondary" busy={busy} onClick={saveThreshold}>Save</Button>
+          </div>
+          <p className="stat-sub">kg — alert when available drops below</p>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card className="p-4">
-          <p className="text-xs text-[#6B7280] uppercase">Total Purchased</p>
-          <p className="text-xl font-bold tabular-nums">{fmtMoney(item.totalPurchased)} kg</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[#6B7280] uppercase">Loss Applied</p>
-          <p className="text-xl font-bold tabular-nums text-[#D93025]">{fmtMoney(item.totalProcessed)} kg</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[#6B7280] uppercase">Available</p>
-          <p className="text-xl font-bold tabular-nums text-[#1E8A44]">{fmtMoney(item.available)} kg</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[#6B7280] uppercase">Status</p>
-          <p className="text-xl font-bold">
-            {Number(item.available) <= 0 ? <Badge kind="red">Out</Badge> : Number(item.available) < Number(item.lowStockKg ?? item.threshold ?? 50) ? <Badge kind="orange">Low</Badge> : <Badge kind="green">In Stock</Badge>}
-          </p>
-        </Card>
       </div>
 
       <Card className="p-4">
         <h2 className="font-semibold mb-3">Movement History</h2>
         {item.movements.length === 0 ? (
-          <p className="text-sm text-[#6B7280] py-4 text-center">No movements recorded.</p>
+          <p className="text-sm text-muted py-4 text-center">No movements recorded.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="data">
@@ -123,9 +122,11 @@ export default function InventoryItemPage() {
                     <td>
                       {m.direction === "IN" ? <Badge kind="green">IN</Badge> : m.direction === "OUT" ? <Badge kind="blue">OUT</Badge> : <Badge kind="orange">LOSS</Badge>}
                     </td>
-                    <td className="text-right tabular-nums">{fmtMoney(m.qtyKg)}</td>
-                    <td className="text-sm text-[#6B7280]">{m.reference || "—"}</td>
-                    <td className="text-sm text-[#6B7280]">{m.note || "—"}</td>
+                    <td className={`text-right tabular-nums font-medium ${m.direction === "IN" ? "text-success" : m.direction === "LOSS" ? "text-danger" : ""}`}>
+                      {m.direction === "IN" ? "+" : "−"}{fmtMoney(m.qtyKg)}
+                    </td>
+                    <td className="text-sm"><span className="code">{m.reference || "—"}</span></td>
+                    <td className="text-sm text-muted">{m.note || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -137,7 +138,7 @@ export default function InventoryItemPage() {
       <Card className="p-4">
         <h2 className="font-semibold mb-3">Loss Events</h2>
         {item.lossEvents.length === 0 ? (
-          <p className="text-sm text-[#6B7280] py-4 text-center">No loss events recorded.</p>
+          <p className="text-sm text-muted py-4 text-center">No loss events recorded.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="data">
@@ -159,7 +160,7 @@ export default function InventoryItemPage() {
                     <td className="text-right tabular-nums text-[#D93025]">{fmtMoney(e.lossKg)}</td>
                     <td className="text-right tabular-nums">{Number(e.lossPct).toFixed(2)}%</td>
                     <td className="text-right tabular-nums font-semibold">{fmtMoney(e.remainingKg)}</td>
-                    <td className="text-sm text-[#6B7280]">{e.notes || "—"}</td>
+                    <td className="text-sm text-muted">{e.notes || "—"}</td>
                   </tr>
                 ))}
               </tbody>

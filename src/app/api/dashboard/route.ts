@@ -4,6 +4,7 @@ import { getVaults } from "@/lib/vault";
 import { getSettings } from "@/lib/settings";
 import { D, startOfMonth, toUsd } from "@/lib/money";
 import type { Prisma } from "@prisma/client";
+import { processingLossUsd, receivablesAndPayables } from "@/lib/accounting";
 
 export const GET = handler("dashboard", async () => {
   const monthStart = startOfMonth();
@@ -28,12 +29,15 @@ export const GET = handler("dashboard", async () => {
   // USD-normalized revenue/COGS across all sales
   const allSalesForPnl = await prisma.sale.findMany({ select: { currency: true, exchangeRate: true, totalAmount: true, cogs: true } });
   const revenueUsd = allSalesForPnl.reduce((acc, s) => acc.plus(toUsdLocal(s.totalAmount, s.currency, s.exchangeRate)), D(0));
-  const cogsUsd = allSalesForPnl.reduce((acc, s) => acc.plus(toUsdLocal(s.cogs, s.currency, s.exchangeRate)), D(0));
-  const netProfit = revenueUsd.minus(cogsUsd);
+  // COGS is stored in USD on each sale — adding it directly (never re-converting).
+  const cogsUsd = allSalesForPnl.reduce((acc, s) => acc.plus(D(s.cogs)), D(0));
+  const loss = await processingLossUsd(rate);
+  const grossProfit = revenueUsd.minus(cogsUsd);
+  const netProfit = grossProfit.minus(loss.total);
 
   // Monthly P&L series (last 12 months)
   const allSales = await prisma.sale.findMany({ select: { saleDate: true, totalAmount: true, cogs: true, currency: true, exchangeRate: true } });
-  const allPurchases = await prisma.purchase.findMany({ select: { txDate: true, totalPrice: true } });
+
   const months: { key: string; label: string; revenue: number; cost: number; profit: number }[] = [];
   const now = new Date();
   for (let i = 11; i >= 0; i--) {
@@ -48,44 +52,46 @@ export const GET = handler("dashboard", async () => {
     const m = monthMap.get(key);
     if (m) {
       const revUsd = Number(toUsdLocal(s.totalAmount, s.currency, s.exchangeRate));
-      const cogsUsdM = Number(toUsdLocal(s.cogs, s.currency, s.exchangeRate));
+      const cogsUsdM = Number(s.cogs);
       m.revenue += revUsd;
       m.cost += cogsUsdM;
       m.profit += revUsd - cogsUsdM;
     }
   }
-  for (const p of allPurchases) {
-    const dt = new Date(p.txDate);
+  // Processing loss is a cost in the month it happened.
+  for (const e of loss.events) {
+    const dt = new Date(e.processedAt);
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
     const m = monthMap.get(key);
-    if (m) m.cost += Number(p.totalPrice);
+    if (m) {
+      m.cost += Number(e.valueUsd);
+      m.profit -= Number(e.valueUsd);
+    }
   }
 
   // Top customers by sales value
   const topCustomers = await prisma.customer.findMany({
-    take: 5,
     select: {
       id: true,
       fullName: true,
-      sales: { select: { totalAmount: true } },
+      sales: { select: { totalAmount: true, currency: true, exchangeRate: true } },
     },
   });
   const tc = topCustomers
-    .map((c) => ({ name: c.fullName, value: c.sales.reduce((a, s) => a + Number(s.totalAmount), 0) }))
+    .map((c) => ({ name: c.fullName, value: c.sales.reduce((a, s) => a + Number(toUsdLocal(s.totalAmount, s.currency, s.exchangeRate)), 0) }))
     .filter((c) => c.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
 
   const topBeneficiaries = await prisma.beneficiary.findMany({
-    take: 5,
     select: {
       id: true,
       fullName: true,
-      purchases: { select: { totalPrice: true } },
+      purchases: { select: { totalPrice: true, currency: true, exchangeRate: true } },
     },
   });
   const tb = topBeneficiaries
-    .map((b) => ({ name: b.fullName, value: b.purchases.reduce((a, p) => a + Number(p.totalPrice), 0) }))
+    .map((b) => ({ name: b.fullName, value: b.purchases.reduce((a, p) => a + Number(toUsdLocal(p.totalPrice, p.currency, p.exchangeRate)), 0) }))
     .filter((b) => b.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
@@ -114,7 +120,7 @@ export const GET = handler("dashboard", async () => {
       party: s.customer.fullName,
       amount: Number(s.totalAmount),
       currency: s.currency,
-      status: Number(s.dueAmount) > 0 ? "Partial" : "Paid",
+      status: Number(s.dueAmount) <= 0 ? "Paid" : Number(s.cashPaid) > 0 ? "Partial" : "Unpaid",
     })),
     ...recentPurchases.map((p) => ({
       id: p.id,
@@ -124,7 +130,7 @@ export const GET = handler("dashboard", async () => {
       party: p.beneficiary.fullName,
       amount: Number(p.totalPrice),
       currency: p.currency,
-      status: Number(p.dueAmount) > 0 ? "Partial" : "Paid",
+      status: Number(p.dueAmount) <= 0 ? "Paid" : Number(p.cashPaid) > 0 ? "Partial" : "Unpaid",
     })),
   ]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -132,24 +138,33 @@ export const GET = handler("dashboard", async () => {
 
   const usdEq = D(vaults.USD.balance).plus(D(vaults.IQD.balance).div(D(settings.exchangeRate)));
 
-  // Outstanding customer dues, USD-normalized
-  const dueSales = await prisma.sale.findMany({ select: { dueAmount: true, currency: true, exchangeRate: true } });
-  const paidDues = await prisma.customerPayment.findMany({ select: { amount: true, currency: true, exchangeRate: true } });
-  const customerDues = dueSales.reduce(
-    (acc, s) => acc.plus(toUsdLocal(s.dueAmount, s.currency, s.exchangeRate)),
-    D(0)
-  ).minus(paidDues.reduce((acc, p) => acc.plus(toUsdLocal(p.amount, p.currency, p.exchangeRate)), D(0)));
+  // Receivables (customers owe us) and payables (we owe suppliers), per-party
+  // balances so advance payments don't hide someone else's debt.
+  const { receivable, payable } = await receivablesAndPayables(rate);
+
+  const monthSales = await prisma.sale.findMany({
+    where: { saleDate: { gte: monthStart } },
+    select: { totalAmount: true, currency: true, exchangeRate: true },
+  });
+  const salesThisMonthUsd = monthSales.reduce((a, s) => a.plus(toUsdLocal(s.totalAmount, s.currency, s.exchangeRate)), D(0));
+  const allPurchasesUsd = await prisma.purchase.findMany({ select: { totalPrice: true, currency: true, exchangeRate: true } });
+  const purchaseTotalUsd = allPurchasesUsd.reduce((a, p) => a.plus(toUsdLocal(p.totalPrice, p.currency, p.exchangeRate)), D(0));
 
   return ok({
-    salesThisMonth: D(salesMonth._sum.totalAmount ?? 0).toFixed(2),
+    salesThisMonth: salesThisMonthUsd.toFixed(2),
     salesAllTime: revenueUsd.toFixed(2),
+    cogs: cogsUsd.toFixed(2),
+    grossProfit: grossProfit.toFixed(2),
+    processingLoss: loss.total.toFixed(2),
+    processingLossKg: loss.kg.toFixed(2),
     netProfit: netProfit.toFixed(2),
-    revenueVsPurchases: revenue.minus(purchaseTotal).toFixed(2),
-    purchaseTotal: purchaseTotal.toFixed(2),
+    revenueVsPurchases: revenueUsd.minus(purchaseTotalUsd).toFixed(2),
+    purchaseTotal: purchaseTotalUsd.toFixed(2),
     vaultUsdEquivalent: usdEq.toFixed(2),
     usdBalance: D(vaults.USD.balance).toFixed(2),
     iqdBalance: D(vaults.IQD.balance).toFixed(2),
-    customerDues: customerDues.toFixed(2),
+    customerDues: receivable.toFixed(2),
+    supplierDues: payable.toFixed(2),
     monthly: months,
     topCustomers: tc,
     topBeneficiaries: tb,

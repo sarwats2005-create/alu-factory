@@ -94,14 +94,34 @@ export const PUT = handler("settings", async (req, user) => {
 
 export const DELETE = handler("settings", async (req, user) => {
   if (user.role !== "OWNER") return fail("Owner access required.", 403);
+  // Single delete via ?id=…, bulk delete via JSON body { ids: [...] }.
   const url = new URL(req.url);
-  const id = url.searchParams.get("id");
-  if (!id) return fail("User id required.", 400);
-  const target = await prisma.user.findUnique({ where: { id } });
-  if (!target) return fail("User not found.", 404);
-  if (target.role === "OWNER") return fail("Owner account cannot be deleted.", 400, "OWNER_PROTECTED");
+  const single = url.searchParams.get("id");
+  let ids: string[] = single ? [single] : [];
+  if (!single) {
+    const body = await req.json().catch(() => ({}));
+    if (Array.isArray(body.ids)) ids = body.ids.map(String).filter(Boolean);
+  }
+  ids = [...new Set(ids)];
+  if (ids.length === 0) return fail("User id required.", 400);
+  if (ids.includes(user.id)) return fail("You cannot delete your own account.", 400, "SELF_PROTECTED");
 
-  await prisma.user.delete({ where: { id } });
-  await audit(user.id, "DELETE", "USERS", id, { email: target.email });
-  return ok({ success: true });
+  const targets = await prisma.user.findMany({ where: { id: { in: ids } } });
+  if (targets.length !== ids.length) return fail("User not found.", 404);
+  if (targets.some((t) => t.role === "OWNER")) {
+    return fail("Owner account cannot be deleted.", 400, "OWNER_PROTECTED");
+  }
+
+  // Remove the users entirely: their audit entries and exchange-rate log rows
+  // reference them without cascade, so clear those first. Permissions cascade.
+  await prisma.$transaction(async (tx) => {
+    await tx.auditLog.deleteMany({ where: { userId: { in: ids } } });
+    await tx.exchangeRateLog.deleteMany({ where: { changedById: { in: ids } } });
+    await tx.user.deleteMany({ where: { id: { in: ids } } });
+  });
+
+  for (const t of targets) {
+    await audit(user.id, "DELETE", "USERS", t.id, { email: t.email, fullName: t.fullName });
+  }
+  return ok({ success: true, deleted: targets.length });
 });

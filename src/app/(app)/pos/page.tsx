@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, Badge, Button, Skeleton, Pagination } from "@/components/ui";
-import { Modal } from "@/components/Modal";
+import { Card, Badge, Button, Skeleton, Pagination, EmptyState } from "@/components/ui";
+import { Modal, ConfirmDialog } from "@/components/Modal";
+import { Icon } from "@/components/icons";
+import { ImpactList, type Impact } from "@/components/Accounting";
 import SpecularButton from "@/components/SpecularButton";
 import { InvoicePreview } from "@/components/Invoice";
 import { toast } from "@/components/Toast";
@@ -199,6 +201,48 @@ export default function PosPage() {
     }
   }
 
+  const money = (n: number) => (form.currency === "IQD" ? `${fmtMoney(n, "IQD")} IQD` : `$${fmtMoney(n)}`);
+  const selectedCustomer = customers.find((c) => c.id === form.customerId);
+  const paidPct = invoiceTotal > 0 ? Math.min(100, ((Number(form.cashPaid) || 0) / invoiceTotal) * 100) : 0;
+  const cashNum = Number(form.cashPaid) || 0;
+  const overpaid = cashNum > invoiceTotal + 0.004;
+
+  // Plain-language preview of every effect this sale will have.
+  const impact: Impact[] = [];
+  const kgByItem = new Map<string, number>();
+  for (const l of lines) if (l.itemId) kgByItem.set(l.itemId, (kgByItem.get(l.itemId) ?? 0) + (Number(l.weightKg) || 0));
+  for (const [itemId, kg] of kgByItem) {
+    const it = items.find((i) => i.id === itemId);
+    if (!it || kg <= 0) continue;
+    const left = Number(it.available) - kg;
+    // While editing, this invoice's own weight is still counted as sold, so
+    // stock figures would be misleading — the server re-checks either way.
+    if (editId) {
+      impact.push({ icon: "box", tone: "out", text: <><strong>{fmtMoney(kg)} kg</strong> of {it.name} will be on this invoice.</> });
+      continue;
+    }
+    impact.push(
+      left < 0
+        ? { icon: "box", tone: "warn", text: <>Only <strong>{fmtMoney(it.available)} kg</strong> of {it.name} in stock — reduce the weight by {fmtMoney(-left)} kg.</> }
+        : { icon: "box", tone: "out", text: <><strong>{fmtMoney(kg)} kg</strong> of {it.name} leaves stock ({fmtMoney(left)} kg left).</> }
+    );
+  }
+  if (cashNum > 0 && !overpaid) {
+    impact.push({
+      icon: "wallet",
+      tone: "in",
+      text: <><strong>{money(cashNum)}</strong> goes into the <strong>{form.vaultCurrency} vault</strong>{crossCurrency ? " (converted at today's rate)" : ""}.</>,
+    });
+  }
+  if (selectedCustomer && invoiceTotal > 0 && !overpaid) {
+    const before = Number(selectedCustomer.due) || 0;
+    impact.push(
+      dueAmount > 0.004
+        ? { icon: "users", text: <>{selectedCustomer.fullName} will owe <strong>{money(dueAmount)}</strong> more on this invoice{before > 0 ? <> (on top of ${fmtMoney(before)} already owed)</> : null}.</> }
+        : { icon: "check", tone: "in", text: <>Fully paid — {selectedCustomer.fullName} owes nothing on this invoice.</> }
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="page-head">
@@ -208,21 +252,25 @@ export default function PosPage() {
           </h1>
           <p className="page-sub">Build the sale, take payment, invoice instantly</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant={view === "builder" ? "primary" : "secondary"} onClick={() => { setView("builder"); router.replace("/pos"); }}>
+        {/* A view switch, not two actions — rendered as a segmented control. */}
+        <div className="seg" role="tablist" aria-label="Point of sale view">
+          <button role="tab" aria-selected={view === "builder"} className={view === "builder" ? "on" : ""} onClick={() => { setView("builder"); router.replace("/pos"); }}>
+            <Icon name="plus" size={14} />
             New Sale
-          </Button>
-          <Button variant={view === "list" ? "primary" : "secondary"} onClick={() => setView("list")}>
+          </button>
+          <button role="tab" aria-selected={view === "list"} className={view === "list" ? "on" : ""} onClick={() => setView("list")}>
+            <Icon name="file" size={14} />
             Sales History
-          </Button>
+          </button>
         </div>
       </div>
 
       {view === "builder" ? (
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-4">
-          <Card className="p-5">
-            <form onSubmit={submit} id="pos-form" className="space-y-4">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
+        <Card className="p-5">
+          <form onSubmit={submit} id="pos-form">
+            <section className="form-section">
+              <h2 className="form-section-title"><span className="step">1</span>Customer</h2>
               <div className="grid sm:grid-cols-2 gap-4">
                 <label className="block">
                   <span className="lbl">Customer *</span>
@@ -234,176 +282,209 @@ export default function PosPage() {
                       </option>
                     ))}
                   </select>
+                  {selectedCustomer && Number(selectedCustomer.due) > 0 && (
+                    <span className="field-hint !text-[var(--warn)]">Already owes ${fmtMoney(selectedCustomer.due)} from earlier invoices.</span>
+                  )}
                 </label>
                 <label className="block">
                   <span className="lbl">Date</span>
                   <input type="date" value={form.saleDate} onChange={(e) => setForm({ ...form, saleDate: e.target.value })} className="inp" />
                 </label>
               </div>
+            </section>
 
-              <div className="border-t border-[#E2E8F0] pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-sm">Sale Line Items</h3>
-                  <button type="button" onClick={addLine} className="btn-secondary btn-sm">+ Add Line Item</button>
-                </div>
-
-                {lines.length === 0 && (
-                  <p className="text-sm text-[#6B7280] py-4 text-center">
-                    No line items yet. Add a product to begin building the sale.
-                  </p>
+            <section className="form-section">
+              <div className="flex items-center justify-between mb-3.5">
+                <h2 className="form-section-title !mb-0"><span className="step">2</span>Products</h2>
+                {lines.length > 0 && (
+                  <button type="button" onClick={addLine} className="btn btn-secondary btn-sm">
+                    <Icon name="plus" size={14} />
+                    Add Line Item
+                  </button>
                 )}
-
-                <div className="space-y-3">
-                  {lines.map((l) => {
-                    const item = items.find((i) => i.id === l.itemId);
-                    return (
-                      <div key={l.key} className="p-3 border border-[#E2E8F0] rounded-lg space-y-3 bg-[#FAFBFC]">
-                        <div className="flex items-center justify-between">
-                          <select
-                            required
-                            value={l.itemId}
-                            onChange={(e) => updateLine(l.key, { itemId: e.target.value })}
-                            className="inp flex-1 mr-2"
-                          >
-                            <option value="">Select product…</option>
-                            {items.map((i) => (
-                              <option key={i.id} value={i.id}>
-                                {i.name} ({i.sku}) — {fmtMoney(i.available)} kg
-                              </option>
-                            ))}
-                          </select>
-                          <button type="button" onClick={() => removeLine(l.key)} className="btn-ghost btn-sm text-[#D93025]" aria-label="Remove line">×</button>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          <label className="block">
-                            <span className="lbl text-xs">Weight (kg)</span>
-                            <div className="flex gap-1">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                required
-                                value={l.weightKg}
-                                onChange={(e) => updateLine(l.key, { weightKg: e.target.value })}
-                                className="inp"
-                              />
-                              <SpecularButton
-                                type="button"
-                                size="sm"
-                                radius={8}
-                                className="whitespace-nowrap"
-                                onClick={() => useMax(l.key, l.itemId)}
-                                disabled={!l.itemId}
-                                title="Fill maximum available weight"
-                              >
-                                MAX
-                              </SpecularButton>
-                            </div>
-                          </label>
-                          <label className="block">
-                            <span className="lbl text-xs">Unit Price</span>
-                            <input
-                              type="number"
-                              step="0.0001"
-                              min="0.0001"
-                              required
-                              value={l.unitPrice}
-                              onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })}
-                              className="inp"
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="lbl text-xs">Sale Type</span>
-                            <select value={l.saleType} onChange={(e) => updateLine(l.key, { saleType: e.target.value })} className="inp">
-                              <option value="RAW">Raw by Weight</option>
-                              <option value="FINISHED">Finished Product</option>
-                            </select>
-                          </label>
-                          <div>
-                            <span className="lbl text-xs">Line Total</span>
-                            <p className="font-semibold tabular-nums py-2">
-                              {form.currency === "IQD" ? `${fmtMoney((Number(l.weightKg) || 0) * (Number(l.unitPrice) || 0), "IQD")}` : `$${fmtMoney((Number(l.weightKg) || 0) * (Number(l.unitPrice) || 0))}`}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </form>
-          </Card>
-        </div>
-
-        {/* Summary column */}
-        <div className="space-y-4">
-          <Card className="p-5 sticky top-4">
-            <h3 className="font-semibold mb-3">Payment</h3>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="lbl">Currency</span>
-                  <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="inp">
-                    <option value="USD">USD</option>
-                    <option value="IQD">IQD</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="lbl">Vault</span>
-                  <select value={form.vaultCurrency} onChange={(e) => setForm({ ...form, vaultCurrency: e.target.value })} className="inp">
-                    <option value="USD">USD Vault</option>
-                    <option value="IQD">IQD Vault</option>
-                  </select>
-                </label>
               </div>
 
-              {crossCurrency && (
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                  Currency mismatch: exchange rate will be applied automatically when converting into the {form.vaultCurrency} vault.
-                </div>
+              {lines.length === 0 && (
+                <button type="button" onClick={addLine} className="line-empty">
+                  <span className="line-empty-icon"><Icon name="box" size={20} /></span>
+                  <span className="font-semibold text-[var(--text)]">Add the first product</span>
+                  <span className="text-[12.5px] text-muted">Pick from inventory, enter weight and price — totals update live.</span>
+                </button>
               )}
 
-              <div className="p-3 rounded-lg bg-[#E8F0FB] text-center">
-                <p className="text-xs text-[#6B7280] uppercase font-semibold">Invoice Total</p>
-                <p className="text-2xl font-bold text-[#1B5DB1] tabular-nums">
-                  {form.currency === "IQD" ? `${fmtMoney(invoiceTotal, "IQD")} IQD` : `$${fmtMoney(invoiceTotal)}`}
-                </p>
+              <div className="space-y-3">
+                {lines.map((l, idx) => {
+                  const lineTotal = (Number(l.weightKg) || 0) * (Number(l.unitPrice) || 0);
+                  return (
+                    <div key={l.key} className="line-card">
+                      <div className="flex items-center gap-2">
+                        <span className="line-num">{idx + 1}</span>
+                        <select
+                          required
+                          value={l.itemId}
+                          onChange={(e) => updateLine(l.key, { itemId: e.target.value })}
+                          className="inp flex-1 min-w-0"
+                          aria-label={`Product for line ${idx + 1}`}
+                        >
+                          <option value="">Select product…</option>
+                          {items.map((i) => (
+                            <option key={i.id} value={i.id}>
+                              {i.name} ({i.sku}) — {fmtMoney(i.available)} kg
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => removeLine(l.key)} className="btn btn-ghost btn-sm is-danger !px-2" aria-label={`Remove line ${idx + 1}`} title="Remove line">
+                          <Icon name="trash" size={15} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                        <label className="block">
+                          <span className="lbl text-xs">Weight (kg)</span>
+                          <div className="flex gap-1">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              required
+                              value={l.weightKg}
+                              onChange={(e) => updateLine(l.key, { weightKg: e.target.value })}
+                              className="inp"
+                            />
+                            <SpecularButton
+                              type="button"
+                              size="sm"
+                              radius={8}
+                              className="whitespace-nowrap"
+                              onClick={() => useMax(l.key, l.itemId)}
+                              disabled={!l.itemId}
+                              title="Fill maximum available weight"
+                            >
+                              MAX
+                            </SpecularButton>
+                          </div>
+                        </label>
+                        <label className="block">
+                          <span className="lbl text-xs">Unit Price</span>
+                          <input
+                            type="number"
+                            step="0.0001"
+                            min="0.0001"
+                            required
+                            value={l.unitPrice}
+                            onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })}
+                            className="inp"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="lbl text-xs">Sale Type</span>
+                          <select value={l.saleType} onChange={(e) => updateLine(l.key, { saleType: e.target.value })} className="inp">
+                            <option value="RAW">Raw by Weight</option>
+                            <option value="FINISHED">Finished Product</option>
+                          </select>
+                        </label>
+                        <div className="text-end">
+                          <span className="lbl text-xs">Line Total</span>
+                          <p className="font-bold tabular-nums py-2 text-[15px]">
+                            {form.currency === "IQD" ? `${fmtMoney(lineTotal, "IQD")}` : `$${fmtMoney(lineTotal)}`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            </section>
 
-              <label className="block">
-                <span className="lbl">Cash Paid</span>
-                <input type="number" step="0.01" min="0" value={form.cashPaid} onChange={(e) => setForm({ ...form, cashPaid: e.target.value })} className="inp" />
-              </label>
-
-              <div className="p-3 rounded-lg border border-[#E2E8F0]">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium">Due — Customer owes factory</span>
-                  <span className={`font-bold tabular-nums ${dueAmount > 0 ? "text-[#D93025]" : "text-[#1E8A44]"}`}>
-                    {form.currency === "IQD" ? `${fmtMoney(dueAmount, "IQD")} IQD` : `$${fmtMoney(dueAmount)}`}
-                  </span>
-                </div>
-                {invoiceTotal > 0 && (
-                  <div className="mt-2 h-2 rounded-full bg-[#E2E8F0] overflow-hidden">
-                    <div
-                      className="h-full bg-[#1E8A44]"
-                      style={{ width: `${Math.min(100, ((Number(form.cashPaid) || 0) / invoiceTotal) * 100)}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-
+            <section className="form-section">
               <label className="block">
                 <span className="lbl">Notes</span>
-                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="inp min-h-[56px]" />
+                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="inp min-h-[56px]" placeholder="Optional — printed on the invoice record" />
               </label>
+            </section>
+          </form>
+        </Card>
 
-              <Button type="submit" className="w-full" busy={busy} form="pos-form">
-                {editId ? "Update Sale" : "Confirm Sale & Generate Invoice"}
-              </Button>
-              {editingInvoice && <p className="text-xs text-center text-[#6B7280]">Editing {editingInvoice} — <button type="button" className="text-[#1B5DB1] underline" onClick={() => router.replace("/pos")}>cancel</button></p>}
+        {/* Payment rail — running total always in view (the "anchor" for every decision). */}
+        <Card className="p-5 lg:sticky lg:top-6 space-y-4">
+          <h2 className="section-title">Payment</h2>
+
+          <div className="p-4 rounded-lg bg-[#E8F0FB]">
+            <p className="text-xs text-muted uppercase font-semibold tracking-wide">Invoice Total</p>
+            <p className="text-[28px] font-bold text-[#1B5DB1] tabular-nums leading-tight mt-0.5">{money(invoiceTotal)}</p>
+            <p className="text-xs text-muted mt-1">{lines.length} line item{lines.length === 1 ? "" : "s"}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="lbl">Currency</span>
+              <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="inp">
+                <option value="USD">USD</option>
+                <option value="IQD">IQD</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="lbl">Vault</span>
+              <select value={form.vaultCurrency} onChange={(e) => setForm({ ...form, vaultCurrency: e.target.value })} className="inp">
+                <option value="USD">USD Vault</option>
+                <option value="IQD">IQD Vault</option>
+              </select>
+            </label>
+          </div>
+
+          {crossCurrency && (
+            <div className="p-3 rounded-lg bg-[var(--warn-50)] border border-[var(--warn)]/30 text-[12.5px] text-[var(--warn)]">
+              Currency mismatch: exchange rate will be applied automatically when converting into the {form.vaultCurrency} vault.
             </div>
-          </Card>
-        </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="pos-cash" className="lbl !mb-0">Cash Paid</label>
+              {invoiceTotal > 0 && (
+                <button
+                  type="button"
+                  className="text-[12px] font-semibold text-[var(--brand)] hover:underline"
+                  onClick={() => setForm({ ...form, cashPaid: String(Math.round(invoiceTotal * 100) / 100) })}
+                >
+                  Paid in full
+                </button>
+              )}
+            </div>
+            <input id="pos-cash" type="number" step="0.01" min="0" value={form.cashPaid} onChange={(e) => setForm({ ...form, cashPaid: e.target.value })} className="inp" placeholder="0.00" />
+          </div>
+
+          <div>
+            <div className="sum-row"><span>Total</span><strong>{money(invoiceTotal)}</strong></div>
+            <div className="sum-row"><span>Cash paid</span><strong>{money(Number(form.cashPaid) || 0)}</strong></div>
+            {invoiceTotal > 0 && (
+              <div className="h-1.5 rounded-full bg-[var(--border)] overflow-hidden my-1" aria-hidden="true">
+                <div className="h-full bg-[var(--success)] transition-[width] duration-300" style={{ width: `${paidPct}%` }} />
+              </div>
+            )}
+            <div className="sum-row total">
+              <span>
+                Due
+                <span className={`block text-[11.5px] font-medium ${dueAmount > 0 ? "text-danger" : "text-muted"}`}>
+                  {dueAmount > 0 ? "Customer owes factory" : "Fully paid"}
+                </span>
+              </span>
+              <strong className={dueAmount > 0 ? "!text-[var(--danger)]" : "!text-[var(--success)]"}>{money(dueAmount)}</strong>
+            </div>
+          </div>
+
+          {overpaid && (
+            <p className="field-hint !text-[var(--danger)] -mt-2" role="alert">
+              Cash paid is more than the invoice total. Enter at most {money(invoiceTotal)} — extra money should be recorded as a customer payment.
+            </p>
+          )}
+          <ImpactList items={impact} />
+
+          <Button type="submit" className="w-full" busy={busy} form="pos-form" disabled={lines.length === 0 || overpaid}>
+            {editId ? "Update Sale" : "Confirm Sale & Generate Invoice"}
+          </Button>
+          {lines.length === 0 && <p className="text-xs text-center text-muted -mt-2">Add at least one product to confirm the sale.</p>}
+          {editingInvoice && <p className="text-xs text-center text-muted">Editing {editingInvoice} — <button type="button" className="text-[var(--brand)] underline" onClick={() => router.replace("/pos")}>cancel</button></p>}
+        </Card>
       </div>
     ) : (
       /* ============ Sales history list ============ */
@@ -411,9 +492,13 @@ export default function PosPage() {
         {loading ? (
           <Skeleton rows={8} />
         ) : sales.length === 0 ? (
-          <p className="text-sm text-[#6B7280] py-10 text-center">
-            No sales yet. Select a customer and add products to create your first invoice.
-          </p>
+          <EmptyState
+            icon="receipt"
+            title="No sales yet"
+            message="Select a customer and add products to create your first invoice."
+            cta="New Sale"
+            onCta={() => setView("builder")}
+          />
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -443,7 +528,7 @@ export default function PosPage() {
                       </td>
                       <td><Badge kind="blue">{s.vaultCurrency}</Badge></td>
                       <td>
-                        <div className="flex gap-1">
+                        <div className="row-actions">
                           <button
                             className="btn-ghost btn-sm"
                             onClick={async () => {
@@ -457,7 +542,7 @@ export default function PosPage() {
                           {editWindowOpen(s) && (
                             <button className="btn-ghost btn-sm" onClick={() => router.push(`/pos?edit=${s.id}`)}>Edit</button>
                           )}
-                          <button className="btn-ghost btn-sm text-[#D93025]" onClick={() => setDeleting(s)}>Delete</button>
+                          <button className="btn-ghost btn-sm is-danger" onClick={() => setDeleting(s)}>Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -485,15 +570,16 @@ export default function PosPage() {
         </Modal>
 
         {/* Delete confirm */}
-        <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete Sale">
-          <p className="text-sm whitespace-pre-line">
-            {`Delete sale ${deleting?.invoiceNo ?? ""}? Inventory and vault effects will be reversed. This action cannot be undone.`}
-          </p>
-          <div className="mt-6 flex justify-end gap-3">
-            <button onClick={() => setDeleting(null)} className="btn-secondary">Cancel</button>
-            <Button variant="danger" busy={busy} onClick={doDelete}>Delete</Button>
-          </div>
-        </Modal>
+        <ConfirmDialog
+          open={!!deleting}
+          onClose={() => setDeleting(null)}
+          onConfirm={doDelete}
+          danger
+          busy={busy}
+          title="Delete Sale"
+          confirmLabel="Delete Sale"
+          message={`Delete sale ${deleting?.invoiceNo ?? ""}? Inventory and vault effects will be reversed. This action cannot be undone.`}
+        />
       </>
     );
   }

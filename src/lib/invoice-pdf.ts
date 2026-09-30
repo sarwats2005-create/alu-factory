@@ -98,6 +98,22 @@ export function invoiceHtml(sale: any): string {
 
   const due = Number(sale.dueAmount ?? 0);
   const duePositive = due > 0;
+  // Spec: show the exchange rate when the cash went into the other currency's vault.
+  const rate = Number(sale.exchangeRate ?? 0);
+  const crossCurrency = sale.vaultCurrency && sale.vaultCurrency !== sale.currency && rate > 0;
+  const cash = Number(sale.cashPaid ?? 0);
+  const received = crossCurrency ? (sale.currency === "IQD" ? cash / rate : cash * rate) : 0;
+  const fxRows = crossCurrency
+    ? `
+        <div class="totals-row fx-row">
+          <span class="t-label">Exchange rate</span>
+          <span class="t-value">1 USD = ${fmtMoney(rate)} IQD</span>
+        </div>${cash > 0 ? `
+        <div class="totals-row fx-row">
+          <span class="t-label">Received into ${esc(sale.vaultCurrency)} vault</span>
+          <span class="t-value">${sale.vaultCurrency === "IQD" ? `${fmtMoney(received, "IQD")} IQD` : `$${fmtMoney(received)}`}</span>
+        </div>` : ""}`
+    : "";
   const dueRowClass = duePositive ? "due-row-positive" : "due-row-zero";
   const rows = (sale.lineItems ?? [])
     .map(
@@ -174,7 +190,7 @@ export function invoiceHtml(sale: any): string {
         <div class="totals-row ${dueRowClass}">
           <span class="t-label">Due Balance${duePositive ? '<span class="due-sub">Customer owes factory</span>' : ""}</span>
           <span class="t-value due">${money(sale.dueAmount)}</span>
-        </div>
+        </div>${fxRows}
       </div>
     </div>
 
@@ -556,6 +572,8 @@ export function invoiceCss(): string {
     border-bottom: 1px solid var(--border);
   }
   .totals-row:last-child { border-bottom: none; }
+  .totals-row.fx-row { font-size: 10.5px; color: #6B7280; }
+  .totals-row.fx-row .t-value { font-weight: 600; color: #475467; }
   .total-row {
     background: var(--blue-light);
     border-top: 2px solid var(--blue);

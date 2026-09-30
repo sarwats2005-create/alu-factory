@@ -21,7 +21,7 @@ export const viewport: Viewport = {
  * Runs before first paint: restores the saved theme (default: dark — the
  * original GhostFiber midnight look) so there is no flash of wrong theme.
  */
-const themeInitScript = `(function(){try{var t=localStorage.getItem("alu_theme");if(t!=="light"&&t!=="dark")t="dark";document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add("dark");}})();`;
+const themeInitScript = `(function(){try{var t=localStorage.getItem("alu_theme");if(t!=="light"&&t!=="dark")t="dark";var c=document.documentElement.classList;c.remove("light","dark");c.add(t);}catch(e){document.documentElement.classList.add("dark");}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
