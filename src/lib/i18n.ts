@@ -253,6 +253,16 @@ export const dict: Record<string, Entry> = {
   depositRecorded: { en: "Deposit recorded.", ku: "دانانی پارە تۆمارکرا." },
   withdrawalRecorded: { en: "Withdrawal recorded.", ku: "دەرهێنانی پارە تۆمارکرا." },
   saveRate: { en: "Save Rate", ku: "پاشەکەوتکردنی نرخ" },
+  currentRate: { en: "Current rate", ku: "نرخی ئێستا" },
+  rateLoggedNote: {
+    en: "Every rate change is logged with a timestamp in Settings → Rate History.",
+    ku: "هەموو گۆڕانکارییەکی نرخ لەگەڵ کات تۆمار دەکرێت لە ڕێکخستنەکان → مێژووی نرخ.",
+  },
+  rateViewOnly: {
+    en: "You have view-only access. Only an owner can change the exchange rate.",
+    ku: "تۆ تەنها دەتوانیت ببینیت. تەنها خاوەن دەتوانێت نرخی ئاڵوگۆڕ بگۆڕێت.",
+  },
+  rateSaveFailed: { en: "Failed to save rate", ku: "پاشەکەوتکردنی نرخ سەرکەوتوو نەبوو" },
 
   // Reports
   reportsTitle: { en: "Reports", ku: "ڕاپۆرتەکان" },

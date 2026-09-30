@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { Icon, type IconName } from "@/components/icons";
 import ThemeToggle from "@/components/ThemeToggle";
+import ExchangeRateFab from "@/components/ExchangeRateFab";
 import PageTransition from "@/components/PageTransition";
 import { t, isRtl, type Lang } from "@/lib/i18n";
 import type { SessionUser } from "@/lib/auth";
@@ -42,6 +43,11 @@ export default function AppShell({
 }) {
   const pathname = usePathname();
   const [lang, setLang] = useState<Lang>("en");
+  // False until the saved language has been read from localStorage. The
+  // persist effect below must not run before that, or it writes "en" over
+  // the user's saved "ku" (and PATCHes the server with "en") on every page
+  // load — which is exactly the "language keeps resetting to English" bug.
+  const [hydrated, setHydrated] = useState(false);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -53,9 +59,12 @@ export default function AppShell({
   useEffect(() => {
     const saved = localStorage.getItem("alu_lang") as "en" | "ku" | null;
     if (saved) setLang(saved);
+    setHydrated(true);
   }, []);
 
   useEffect(() => {
+    // Skip the very first run if the saved language hasn't been applied yet.
+    if (!hydrated) return;
     const dir = isRtl(lang) ? "rtl" : "ltr";
     document.documentElement.dir = dir;
     document.documentElement.lang = lang === "ku" ? "ckb" : "en";
@@ -67,7 +76,7 @@ export default function AppShell({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ language: lang }),
     }).catch(() => {});
-  }, [lang]);
+  }, [lang, hydrated]);
 
   useEffect(() => {
     let alive = true;
@@ -286,6 +295,9 @@ export default function AppShell({
           </div>
         </div>
       )}
+
+      {/* ===== Floating exchange-rate CTA (every page) ===== */}
+      <ExchangeRateFab />
 
       {/* ===== Alerts popover ===== */}
       {alertsOpen && (
