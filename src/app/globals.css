@@ -1823,6 +1823,80 @@ table.data th.th-end {
   gap: 2px;
   flex-wrap: wrap;
 }
+
+/* ---------- Icon-only row actions ----------
+   Replaces "View / Edit / Delete" text buttons. The tint is carried at rest,
+   not only on hover, so the meaning is readable at a glance and does not depend
+   on which row the pointer happens to be over. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  text-decoration: none;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* view — brand blue: navigation, read-only */
+.icon-btn--view {
+  color: var(--brand);
+  background: var(--brand-50);
+  border-color: transparent;
+}
+.icon-btn--view:hover:not(:disabled) {
+  background: var(--brand-100);
+  border-color: transparent;
+  color: var(--brand-600);
+}
+
+/* edit — amber: modifies a record */
+.icon-btn--edit {
+  color: var(--warn);
+  background: var(--warn-50);
+  border-color: transparent;
+}
+.icon-btn--edit:hover:not(:disabled) {
+  background: var(--warn-50);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* danger — red: destructive, cannot be undone */
+.icon-btn--danger {
+  color: var(--danger);
+  background: var(--danger-50);
+  border-color: transparent;
+}
+.icon-btn--danger:hover:not(:disabled) {
+  background: var(--danger-50);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* neutral — grey: secondary/utility */
+.icon-btn--neutral:hover:not(:disabled) {
+  color: var(--text);
+}
+
 .btn-ghost.is-danger {
   color: var(--danger);
 }

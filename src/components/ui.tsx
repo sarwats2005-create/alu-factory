@@ -69,6 +69,37 @@ export function Spinner({ size = 14 }: { size?: number }) {
   );
 }
 
+/* ---------- Icon button (row actions) ----------
+   Colour carries the meaning: view = brand blue, edit = amber, destructive =
+   red. Renders a real <button>, so it stays keyboard reachable and announced. */
+
+export type IconButtonTone = "view" | "edit" | "danger" | "neutral";
+
+export function IconButton({
+  icon,
+  label,
+  tone = "neutral",
+  className = "",
+  ...props
+}: {
+  icon: IconName;
+  /** Required: it becomes the accessible name, since no text is rendered. */
+  label: string;
+  tone?: IconButtonTone;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className={`icon-btn icon-btn--${tone} ${className}`}
+      {...props}
+    >
+      <Icon name={icon} size={16} />
+    </button>
+  );
+}
+
 /* ---------- Form fields ---------- */
 
 export function Input({

@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, Badge, Button, Skeleton, Pagination, SearchInput, EmptyState } from "@/components/ui";
+import { Card, Badge, Button, Skeleton, Pagination, SearchInput, EmptyState, IconButton } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal, ConfirmDialog } from "@/components/Modal";
 import { InvoicePreview } from "@/components/Invoice";
@@ -286,34 +286,37 @@ export default function InvoicesPage() {
                         </td>
                         <td>
                           <div className="row-actions">
-                            <button
-                              className="btn-ghost btn-sm"
+                            <IconButton
+                              icon="eye"
+                              tone="view"
+                              label={`View invoice ${s.invoiceNo}`}
                               onClick={async () => {
                                 const full = await fetch(`/api/sales/by-id?id=${s.id}`);
                                 const d = await full.json();
                                 setInvoice(d.sale);
                               }}
-                            >
-                              View
-                            </button>
-                            <button className="btn-ghost btn-sm" onClick={() => savePdf(s)}>
-                              Save PDF
-                            </button>
+                            />
+                            <IconButton
+                              icon="printer"
+                              tone="neutral"
+                              label={`Save ${s.invoiceNo} as PDF`}
+                              onClick={() => savePdf(s)}
+                            />
                             {editable && (
-                              <button
-                                className="btn-ghost btn-sm"
+                              <IconButton
+                                icon="edit"
+                                tone="edit"
+                                label={`Edit invoice ${s.invoiceNo}`}
                                 title={countdown}
                                 onClick={() => router.push(`/pos?edit=${s.id}`)}
-                              >
-                                Edit
-                              </button>
+                              />
                             )}
-                            <button
-                              className="btn-ghost btn-sm is-danger"
+                            <IconButton
+                              icon="trash"
+                              tone="danger"
+                              label={`Delete invoice ${s.invoiceNo}`}
                               onClick={() => setDeleting(s)}
-                            >
-                              Delete
-                            </button>
+                            />
                           </div>
                         </td>
                       </tr>

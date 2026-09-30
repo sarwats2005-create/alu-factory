@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Card, Badge, Skeleton, Button } from "@/components/ui";
+import { Card, Badge, Skeleton, Button, IconButton } from "@/components/ui";
 import { Modal, ConfirmDialog } from "@/components/Modal";
 import { Icon } from "@/components/icons";
 import { toast } from "@/components/Toast";
@@ -15,6 +15,7 @@ export default function SettingsPage() {
   const [types, setTypes] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [backups, setBackups] = useState<any[]>([]);
+  const [backupInfo, setBackupInfo] = useState<{ integrity?: any[]; diskWritable?: boolean } | null>(null);
   const [auditRows, setAuditRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -56,7 +57,11 @@ export default function SettingsPage() {
           setUsers(list);
           setSelectedUsers((sel) => sel.filter((id) => list.some((u: any) => u.id === id)));
         }
-        if (bRes.ok) setBackups((await bRes.json()).backups || []);
+        if (bRes.ok) {
+          const b = await bRes.json();
+          setBackups(b.backups || []);
+          setBackupInfo({ integrity: b.integrity, diskWritable: b.diskWritable });
+        }
         if (aRes.ok) setAuditRows((await aRes.json()).rows || []);
       }
     } finally {
@@ -199,9 +204,21 @@ export default function SettingsPage() {
         body: JSON.stringify({ filename: restoreTarget.filename }),
       });
       const d = await res.json();
-      if (!res.ok) toast(d.error || "Restore failed", "error");
-      else toast("Restore complete.", "success");
+      if (!res.ok) {
+        toast(d.error || "Restore failed", "error");
+      } else {
+        const c = d.counts ?? {};
+        const vaultNote = c.vault?.changed?.length
+          ? ` Vault balance recalculated: ${c.vault.changed
+              .map((k: string) => `${k} ${c.vault.before[k]} → ${c.vault.after[k]}`)
+              .join(", ")}.`
+          : "";
+        toast(`Restore complete — ${c.sales ?? 0} sales, ${c.customers ?? 0} customers, ${c.vaultTransactions ?? 0} vault entries.${vaultNote}`, "success");
+      }
       setRestoreTarget(null);
+      await load(); // counts, vault integrity and audit trail have all moved
+    } catch {
+      toast("Restore could not be completed.", "error");
     } finally {
       setBusy(false);
     }
@@ -448,8 +465,10 @@ export default function SettingsPage() {
                         <td>
                           {u.role !== "OWNER" && (
                             <div className="row-actions">
-                              <button
-                                className="btn-ghost btn-sm"
+                              <IconButton
+                                icon="edit"
+                                tone="edit"
+                                label={`Edit ${u.fullName}`}
                                 onClick={() => {
                                   setEditingUser(u);
                                   setUserForm({
@@ -460,15 +479,19 @@ export default function SettingsPage() {
                                   });
                                   setUserModal(true);
                                 }}
-                              >
-                                Edit
-                              </button>
-                              <button className="btn-ghost btn-sm" onClick={() => toggleUserActive(u)}>
-                                {u.active ? "Deactivate" : "Activate"}
-                              </button>
-                              <button className="btn-ghost btn-sm is-danger" onClick={() => setDeleteTargets([u])}>
-                                Delete
-                              </button>
+                              />
+                              <IconButton
+                                icon={u.active ? "eyeOff" : "check"}
+                                tone="neutral"
+                                label={u.active ? `Deactivate ${u.fullName}` : `Activate ${u.fullName}`}
+                                onClick={() => toggleUserActive(u)}
+                              />
+                              <IconButton
+                                icon="trash"
+                                tone="danger"
+                                label={`Delete ${u.fullName}`}
+                                onClick={() => setDeleteTargets([u])}
+                              />
                             </div>
                           )}
                         </td>
@@ -498,7 +521,7 @@ export default function SettingsPage() {
             {backups.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="data">
-                  <thead><tr><th>Created</th><th>File</th><th>Kind</th><th className="text-right">Size</th><th></th></tr></thead>
+                  <thead><tr><th>Created</th><th>File</th><th>Kind</th><th className="text-right">Size</th><th /></tr></thead>
                   <tbody>
                     {backups.map((b) => (
                       <tr key={b.id}>
@@ -507,13 +530,55 @@ export default function SettingsPage() {
                         <td><Badge kind={b.kind === "AUTO" ? "gray" : "blue"}>{b.kind === "AUTO" ? "Auto" : "Manual"}</Badge></td>
                         <td className="text-right tabular-nums">{(b.sizeBytes / 1024).toFixed(1)} KB</td>
                         <td className="text-right">
-                          <button className="btn-ghost btn-sm is-danger" onClick={() => setRestoreTarget(b)}>Restore…</button>
+                          <IconButton
+                            icon="shield"
+                            tone="view"
+                            label={`Restore ${b.filename}`}
+                            onClick={() => setRestoreTarget(b)}
+                          />
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            )}
+
+            {backupInfo?.integrity && (
+              <div className="mt-4">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-faint mb-2">
+                  Vault integrity
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {backupInfo.integrity.map((v: any) => (
+                    <span
+                      key={v.currency}
+                      className={`badge ${v.ok ? "badge-green" : "badge-orange"}`}
+                      title={
+                        v.ok
+                          ? "Balance agrees with its ledger"
+                          : `Balance was set outside the ledger. Restoring will recalculate it to ${v.fromLedger.toLocaleString()}.`
+                      }
+                    >
+                      {v.currency} {Number(v.balance).toLocaleString()}
+                      {v.ok ? " · in sync" : ` · ledger says ${Number(v.fromLedger).toLocaleString()}`}
+                    </span>
+                  ))}
+                </div>
+                {!backupInfo.integrity.every((v: any) => v.ok) && (
+                  <p className="text-[12px] text-[var(--warn)] mt-2 leading-relaxed">
+                    A vault balance disagrees with its own transactions. Restoring a backup recalculates
+                    balances from the ledger and will correct this.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {backupInfo && !backupInfo.diskWritable && (
+              <p className="text-[12px] text-[var(--warn)] mt-4 leading-relaxed">
+                This host cannot store backup files on disk, so only the three most recent snapshots are
+                kept here. Use <strong>Export JSON</strong> for a durable copy.
+              </p>
             )}
           </Card>
 

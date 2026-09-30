@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, Badge, Skeleton, Pagination, Button, Input, Select, Textarea, SearchInput, EmptyState } from "@/components/ui";
+import { Card, Badge, Skeleton, Pagination, Button, Input, Select, Textarea, SearchInput, EmptyState, IconButton } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { Modal } from "@/components/Modal";
 import { toast } from "@/components/Toast";
 import { fmtMoney } from "@/lib/money";
@@ -175,17 +176,29 @@ export default function InventoryPage() {
                     </td>
                     <td>
                       <div className="row-actions">
-                        <button
-                          className="btn-ghost btn-sm"
+                        <IconButton
+                          icon="scale"
+                          tone="edit"
+                          label={`Record processing loss for ${item.name}`}
                           disabled={Number(item.available) <= 0}
                           onClick={() => setLossItem(item)}
+                        />
+                        <Link
+                          className="icon-btn icon-btn--view"
+                          href={`/pos/purchase?restock=${encodeURIComponent(item.sku)}`}
+                          aria-label={`Restock ${item.name}`}
+                          title="Restock"
                         >
-                          Process Loss
-                        </button>
-                        <Link className="btn-ghost btn-sm" href={`/pos/purchase?restock=${encodeURIComponent(item.sku)}`}>
-                          Restock
+                          <Icon name="box" size={16} />
                         </Link>
-                        <Link className="btn-ghost btn-sm" href={`/inventory/${item.id}`}>History</Link>
+                        <Link
+                          className="icon-btn icon-btn--neutral"
+                          href={`/inventory/${item.id}`}
+                          aria-label={`Movement history for ${item.name}`}
+                          title="History"
+                        >
+                          <Icon name="timer" size={16} />
+                        </Link>
                       </div>
                     </td>
                   </tr>

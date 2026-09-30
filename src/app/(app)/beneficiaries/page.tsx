@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Card, EmptyState, Badge, Skeleton, Pagination, Button, SearchInput } from "@/components/ui";
+import { Card, EmptyState, Badge, Skeleton, Pagination, Button, SearchInput, IconButton } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { Modal, ConfirmDialog } from "@/components/Modal";
 import { toast } from "@/components/Toast";
 import { balanceText } from "@/components/Accounting";
@@ -160,9 +161,30 @@ export default function BeneficiariesPage() {
                     </td>
                     <td>
                       <div className="row-actions">
-                        <Link href={`/beneficiaries/${b.id}`} className="btn-ghost btn-sm">View</Link>
-                        <button onClick={() => { setEditing(b); setForm({ fullName: b.fullName, phone: b.phone || "", address: b.address || "" }); setModalOpen(true); }} className="btn-ghost btn-sm">Edit</button>
-                        <button onClick={() => setDeleting(b)} className="btn-ghost btn-sm is-danger">Delete</button>
+                        <Link
+                          href={`/beneficiaries/${b.id}`}
+                          className="icon-btn icon-btn--view"
+                          aria-label={`View ${b.fullName}`}
+                          title="View"
+                        >
+                          <Icon name="eye" size={16} />
+                        </Link>
+                        <IconButton
+                          icon="edit"
+                          tone="edit"
+                          label={`Edit ${b.fullName}`}
+                          onClick={() => {
+                            setEditing(b);
+                            setForm({ fullName: b.fullName, phone: b.phone || "", address: b.address || "" });
+                            setModalOpen(true);
+                          }}
+                        />
+                        <IconButton
+                          icon="trash"
+                          tone="danger"
+                          label={`Delete ${b.fullName}`}
+                          onClick={() => setDeleting(b)}
+                        />
                       </div>
                     </td>
                   </tr>

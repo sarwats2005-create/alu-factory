@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Card, EmptyState, Badge, Skeleton, Pagination, Button, Input, SearchInput } from "@/components/ui";
+import { Card, EmptyState, Badge, Skeleton, Pagination, Button, Input, SearchInput, IconButton } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { Modal, ConfirmDialog } from "@/components/Modal";
 import { toast } from "@/components/Toast";
 import { balanceText } from "@/components/Accounting";
@@ -186,9 +187,16 @@ export default function CustomersPage() {
                     </td>
                     <td>
                       <div className="row-actions">
-                        <Link href={`/customers/${c.id}`} className="btn-ghost btn-sm">View</Link>
-                        <button onClick={() => openEdit(c)} className="btn-ghost btn-sm">Edit</button>
-                        <button onClick={() => setDeleting(c)} className="btn-ghost btn-sm is-danger">Delete</button>
+                        <Link
+                          href={`/customers/${c.id}`}
+                          className="icon-btn icon-btn--view"
+                          aria-label={`View ${c.fullName}`}
+                          title="View"
+                        >
+                          <Icon name="eye" size={16} />
+                        </Link>
+                        <IconButton icon="edit" tone="edit" label={`Edit ${c.fullName}`} onClick={() => openEdit(c)} />
+                        <IconButton icon="trash" tone="danger" label={`Delete ${c.fullName}`} onClick={() => setDeleting(c)} />
                       </div>
                     </td>
                   </tr>

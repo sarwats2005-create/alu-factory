@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, Badge, Button, Skeleton, Pagination, EmptyState } from "@/components/ui";
+import { Card, Badge, Button, Skeleton, Pagination, EmptyState, IconButton } from "@/components/ui";
 import { Modal, ConfirmDialog } from "@/components/Modal";
 import { Icon } from "@/components/icons";
 import { ImpactList, type Impact } from "@/components/Accounting";
@@ -529,20 +529,30 @@ export default function PosPage() {
                       <td><Badge kind="blue">{s.vaultCurrency}</Badge></td>
                       <td>
                         <div className="row-actions">
-                          <button
-                            className="btn-ghost btn-sm"
+                          <IconButton
+                            icon="receipt"
+                            tone="view"
+                            label={`View invoice ${s.invoiceNo}`}
                             onClick={async () => {
                               const full = await fetch(`/api/sales/by-id?id=${s.id}`);
                               const d = await full.json();
                               setInvoice(d.sale);
                             }}
-                          >
-                            Invoice
-                          </button>
+                          />
                           {editWindowOpen(s) && (
-                            <button className="btn-ghost btn-sm" onClick={() => router.push(`/pos?edit=${s.id}`)}>Edit</button>
+                            <IconButton
+                              icon="edit"
+                              tone="edit"
+                              label={`Edit invoice ${s.invoiceNo}`}
+                              onClick={() => router.push(`/pos?edit=${s.id}`)}
+                            />
                           )}
-                          <button className="btn-ghost btn-sm is-danger" onClick={() => setDeleting(s)}>Delete</button>
+                          <IconButton
+                            icon="trash"
+                            tone="danger"
+                            label={`Delete invoice ${s.invoiceNo}`}
+                            onClick={() => setDeleting(s)}
+                          />
                         </div>
                       </td>
                     </tr>
