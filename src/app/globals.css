@@ -1644,4 +1644,9 @@ html.dark .glass-panel {
     box-shadow: none !important;
     padding: 0 !important;
   }
+
+  /* Invoice printing does NOT go through window.print() on the app document.
+     It renders into a dedicated hidden iframe (printInvoice() in
+     src/lib/invoice-pdf.ts) whose document contains only the invoice and
+     its own @page rule — isolated from this stylesheet entirely. */
 }

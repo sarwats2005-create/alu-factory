@@ -88,8 +88,11 @@ async function writableDir(): Promise<any | null> {
  * The approved invoice design. Every color comes from the brand token list;
  * no approximations. Product names can be Arabic/Kurdish, so the container
  * sets `unicode-bidi: plaintext` to render RTL text correctly.
+ *
+ * Exported so the on-screen preview in <InvoicePreview /> renders the exact
+ * same markup — what the user sees is byte-for-byte what gets exported.
  */
-function invoiceHtml(sale: any): string {
+export function invoiceHtml(sale: any): string {
   const cur = sale.currency === "IQD";
   const money = (v: any) => (cur ? `${fmtMoney(v, "IQD")} IQD` : `$${fmtMoney(v)}`);
 
@@ -99,7 +102,7 @@ function invoiceHtml(sale: any): string {
   const rows = (sale.lineItems ?? [])
     .map(
       (li: any, i: number) => `
-      <tr class="${i % 2 === 1 ? "odd" : "even"}">
+      <tr class="${i % 2 === 0 ? "odd" : "even"}">
         <td class="c-sku"><span class="sku-badge">${esc(li.item?.sku ?? "")}</span></td>
         <td class="c-product">${esc(li.item?.name ?? "")}</td>
         <td>${fmtMoney(li.weightKg)} kg</td>
@@ -110,7 +113,7 @@ function invoiceHtml(sale: any): string {
     .join("");
 
   return `
-  <div class="page" dir="ltr">
+  <div class="inv-page" dir="ltr">
     <!-- HEADER -->
     <div class="header">
       <div class="header-left">
@@ -213,8 +216,13 @@ async function renderCanvas(sale: any): Promise<HTMLCanvasElement> {
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   if (document.fonts?.ready) await document.fonts.ready;
 
+  // firstElementChild would be the <style> tag above, which has no layout —
+  // html2canvas would capture a 0x0 canvas. Target the invoice root instead.
+  const el = host.querySelector<HTMLElement>(".inv-page");
+  if (!el) throw new Error("Invoice failed to render.");
+
   try {
-    return await html2canvas(host.firstElementChild as HTMLElement, {
+    return await html2canvas(el, {
       scale: 2,
       backgroundColor: "#ffffff",
     });
@@ -230,6 +238,100 @@ async function canvasToPdf(canvas: HTMLCanvasElement) {
   const h = (canvas.height * w) / canvas.width;
   pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, w, Math.min(h, 210));
   return pdf;
+}
+
+/* ---------------- direct printing (real printer) ---------------- */
+
+/**
+ * Full standalone document for the print iframe.
+ *
+ * The iframe document contains ONLY the invoice: its own <style> with the
+ * scoped template CSS, its own @page rule, nothing else. No app stylesheet,
+ * no dark theme, no global print CSS — so the printer output cannot be
+ * affected by anything in the host page.
+ */
+function printDocument(sale: any): string {
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${esc(sale.invoiceNo)}</title>
+<style>
+  /* Exact A5, zero margins — the template handles its own spacing. */
+  @page { size: 148mm 210mm; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  /* Colored header, badges and strips must survive printing. */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  /* A line item should never be split across two pages. */
+  .inv-page tr { break-inside: avoid; }
+</style>
+<style>${invoiceCss()}</style>
+</head>
+<body>${invoiceHtml(sale)}</body>
+</html>`;
+}
+
+/**
+ * Print the invoice on a real printer via a hidden iframe.
+ *
+ * Why an iframe instead of window.print(): window.print() prints the whole
+ * app document, which forced a fragile global print stylesheet (hide every
+ * element, then un-hide the invoice). That stylesheet broke the moment the
+ * preview markup changed — blank pages — and it also hijacked printing on
+ * unrelated pages that use window.print(). An iframe document contains only
+ * the invoice, so nothing in the host page can interfere.
+ */
+export function printInvoice(sale: any): void {
+  // Never stack print frames: drop a previous one if a dialog was abandoned.
+  document.getElementById("alu-invoice-print-frame")?.remove();
+
+  const iframe = document.createElement("iframe");
+  iframe.id = "alu-invoice-print-frame";
+  iframe.setAttribute("aria-hidden", "true");
+  // 0x0 and off-flow: it must never affect the page layout, and visibility
+  // hidden keeps it out of the live page while its own document still lays
+  // out normally for printing.
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(iframe);
+
+  const win = iframe.contentWindow;
+  const doc = win?.document;
+  if (!win || !doc) return;
+
+  // document.write into the about:blank frame is synchronous and same-origin
+  // — the classic technique print-js uses. Simpler and more reliable than
+  // srcdoc + load-event bookkeeping across browsers.
+  doc.open();
+  doc.write(printDocument(sale));
+  doc.close();
+
+  // The logo <img> loads asynchronously; printing before it decodes produces
+  // a header with a hole. Wait for every image and for fonts, then print.
+  Promise.all([
+    ...[...doc.images].map(
+      (img) =>
+        new Promise<void>((res) => {
+          if (img.complete) return res();
+          img.onload = img.onerror = () => res();
+        })
+    ),
+    doc.fonts?.ready ?? Promise.resolve(),
+  ]).then(() => {
+    win.focus();
+    win.print();
+  });
+
+  // Remove the frame once the dialog closes. Chrome/Firefox fire
+  // onafterprint on the printing window; Safari doesn't, so a generous
+  // fallback timer guarantees the frame never leaks.
+  let done = false;
+  const cleanup = () => {
+    if (done) return;
+    done = true;
+    setTimeout(() => iframe.remove(), 500);
+  };
+  win.onafterprint = cleanup;
+  setTimeout(cleanup, 120_000);
 }
 
 /**
@@ -263,9 +365,12 @@ export async function saveInvoicePdf(
 
 /* ---------------- stylesheet (brand tokens, no approximations) ---------------- */
 
-function invoiceCss(): string {
+export function invoiceCss(): string {
   return `
-  :root {
+  /* Tokens live on .inv-page itself — NOT :root. globals.css defines
+     conflicting custom properties on html.dark (higher specificity), which
+     would turn every var(--text) white inside the app's dark theme. */
+  .inv-page {
     --blue:       #1B5DB1;
     --blue-dark:  #143F7A;
     --blue-light: #E8F0FB;
@@ -277,19 +382,22 @@ function invoiceCss(): string {
     --green:      #1E8A44;
     --red:        #D93025;
     --white:      #FFFFFF;
-  }
 
-  .page {
     width: 480px;
     background: var(--white);
     color: var(--text);
     font-family: Inter, Arial, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   /* ---- 1. HEADER ---- */
+  /* CSS grid with three equal columns: the brand block is optically centered
+     regardless of how wide the invoice number or logo are (flex space-between
+     drifts when the side columns differ in width). */
   .header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     background: var(--blue);
     padding: 28px 32px;
@@ -307,7 +415,6 @@ function invoiceCss(): string {
     margin-top: 2px;
   }
   .header-center {
-    flex: 1;
     text-align: center;
   }
   .brand-name {
@@ -322,6 +429,9 @@ function invoiceCss(): string {
     font-weight: 400;
     letter-spacing: 0.3px;
     margin-top: 2px;
+  }
+  .header-right {
+    justify-self: end;
   }
   .logo-box {
     width: 56px;
@@ -380,25 +490,26 @@ function invoiceCss(): string {
   }
 
   /* ---- 4. LINE ITEMS TABLE ---- */
-  .table-wrap { padding: 24px 32px 0; }
+  .table-wrap { padding: 24px 24px 0; }
   table {
     width: 100%;
     border-collapse: collapse;
   }
   thead tr { background: var(--blue); }
   th {
-    padding: 11px 14px;
+    padding: 11px 10px;
     font-size: 11px;
     font-weight: 600;
     color: var(--white);
     text-transform: uppercase;
     letter-spacing: 0.4px;
     text-align: center;
+    white-space: nowrap;
   }
   th.th-left { text-align: left; }
   th.th-right { text-align: right; }
   td {
-    padding: 12px 14px;
+    padding: 12px 10px;
     font-size: 13px;
     color: var(--text);
     text-align: center;
@@ -419,6 +530,7 @@ function invoiceCss(): string {
     border: 1px solid var(--border);
     letter-spacing: 0.3px;
     font-family: monospace;
+    white-space: nowrap;
   }
   td.c-product {
     font-weight: 500;
